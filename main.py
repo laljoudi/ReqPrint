@@ -1,32 +1,28 @@
-"""FastAPI backend for ReqPrint. Wraps the existing ai.py / export.py logic as HTTP endpoints."""
+"""FastAPI backend for ReqPrint. Wraps the existing ai.py / export.py logic as HTTP
+endpoints, and (once built) serves the React app itself, so the whole thing runs as
+one process on one port."""
 import os
-from typing import Optional
+from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ai import next_question, generate_requirements, revise_requirements
 from export import build_docx
 
 load_dotenv()
+APP_USERNAME = os.getenv("APP_USERNAME")
 APP_PASSWORD = os.getenv("APP_PASSWORD")
 API_KEY = os.getenv("GEMINI_API_KEY")
 
 app = FastAPI(title="ReqPrint API")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173", "http://127.0.0.1:5173",
-        "http://localhost:5174", "http://127.0.0.1:5174",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Every endpoint below lives under /api/... so it can never collide with a
+# React file/route once the frontend is mounted at "/" further down.
+api = APIRouter(prefix="/api")
 
 
 # ---------- Request/response models ----------
@@ -52,6 +48,7 @@ class ReviseRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
+    username: str
     password: str
 
 
@@ -63,22 +60,25 @@ def final_input_text(description: str, qa_history: list[QAItem]) -> str:
     return text
 
 
-@app.get("/")
-def home():
+@api.get("/health")
+def health():
     return {"message": "ReqPrint API is running"}
 
 
-@app.post("/login")
+@api.post("/login")
 def login(req: LoginRequest):
-    """Checks the submitted password against APP_PASSWORD from .env."""
-    if not APP_PASSWORD:
-        raise HTTPException(status_code=500, detail="APP_PASSWORD not set. Check your .env file.")
-    if req.password != APP_PASSWORD:
-        raise HTTPException(status_code=401, detail="Incorrect password.")
+    """Checks the submitted username + password against APP_USERNAME / APP_PASSWORD from .env."""
+    if not APP_USERNAME or not APP_PASSWORD:
+        raise HTTPException(
+            status_code=500,
+            detail="APP_USERNAME / APP_PASSWORD not set. Check your .env file.",
+        )
+    if req.username != APP_USERNAME or req.password != APP_PASSWORD:
+        raise HTTPException(status_code=401, detail="Incorrect username or password.")
     return {"ok": True}
 
 
-@app.post("/next-question")
+@api.post("/next-question")
 def next_question_endpoint(req: NextQuestionRequest):
     """Asks Gemini for the next clarifying question based on the description and answers so far."""
     if not API_KEY:
@@ -87,7 +87,7 @@ def next_question_endpoint(req: NextQuestionRequest):
     return next_question(req.description, qa_history)
 
 
-@app.post("/generate")
+@api.post("/generate")
 def generate_endpoint(req: GenerateRequest):
     """Generates the structured requirements document from the description + answered questions."""
     if not API_KEY:
@@ -96,7 +96,7 @@ def generate_endpoint(req: GenerateRequest):
     return generate_requirements(text)
 
 
-@app.post("/revise")
+@api.post("/revise")
 def revise_endpoint(req: ReviseRequest):
     """Edits the existing requirements document based on a free-text instruction."""
     if not API_KEY:
@@ -107,7 +107,7 @@ def revise_endpoint(req: ReviseRequest):
         raise HTTPException(status_code=500, detail=f"Update failed: {e}")
 
 
-@app.post("/export")
+@api.post("/export")
 def export_endpoint(data: dict):
     """Builds a .docx file from the requirements data and returns it for download."""
     buf = build_docx(data)
@@ -116,3 +116,16 @@ def export_endpoint(data: dict):
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": "attachment; filename=requirements.docx"},
     )
+
+
+app.include_router(api)
+
+# Serve the built React app (frontend/dist, created by `npm run build`) for every
+# route that isn't one of the /api/... routes above. This MUST be added last:
+# FastAPI checks routes in the order they were registered, so mounting here first
+# would swallow every request before it ever reached /api/*.
+# In local dev this directory won't exist yet (the frontend runs on its own Vite
+# server instead) - only mount it if a build is actually present.
+FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

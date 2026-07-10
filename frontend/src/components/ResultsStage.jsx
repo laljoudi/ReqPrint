@@ -1,8 +1,5 @@
 import { useState } from "react";
-import RequirementsTab from "./tabs/RequirementsTab";
-import UserStoriesTab from "./tabs/UserStoriesTab";
-import Table from "./tabs/Table";
-import AssumptionsTab from "./tabs/AssumptionsTab";
+import { RequirementsTab, UserStoriesTab, Table, AssumptionsTab } from "./ResultTabs";
 import RefinePanel from "./RefinePanel";
 
 const AC_COLUMNS = [
@@ -23,6 +20,8 @@ const UC_COLUMNS = [
   { key: "alternative_flow", label: "Alternative flow" },
 ];
 
+// Stage 3: the final requirements document. Shows 5 tabs (built from ResultTabs.jsx),
+// a Word download button, a "start over" button, and the refine sidebar.
 export default function ResultsStage({
   data,
   onDownload,

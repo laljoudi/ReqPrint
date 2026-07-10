@@ -1,13 +1,18 @@
+// App.jsx is the "brain" of the app: it holds all the state (what stage we're
+// on, the data collected so far) and decides which screen to show. Each
+// screen component below is "dumb" - it just displays props and calls the
+// on... callbacks passed to it; App.jsx is the only place state changes.
 import { useState } from "react";
 import Header from "./components/Header";
 import LoginScreen from "./components/LoginScreen";
-import DescribeStage from "./components/DescribeStage";
-import QuestionsStage from "./components/QuestionsStage";
+import { DescribeStage, QuestionsStage } from "./components/Stages";
 import ResultsStage from "./components/ResultsStage";
 import { nextQuestion, generateRequirements, reviseRequirements, exportDocx } from "./lib/api";
 
 const MAX_QUESTIONS = 5;
 
+// The three-stage flow, and everything gathered along the way.
+// stage moves describe -> questions -> results; "Start over" resets to this.
 const emptyFlow = {
   stage: "describe",
   description: "",
@@ -18,7 +23,7 @@ const emptyFlow = {
 };
 
 function App() {
-  const [loggedIn, setLoggedIn] = useState(true); // TEMP: login bypassed for local testing
+  const [loggedIn, setLoggedIn] = useState(false);
   const [flow, setFlow] = useState(emptyFlow);
 
   const [describeLoading, setDescribeLoading] = useState(false);
@@ -29,6 +34,7 @@ function App() {
   const [refining, setRefining] = useState(false);
   const [refineError, setRefineError] = useState("");
 
+  // Calls POST /generate and moves to the results stage.
   async function runGeneration(description, qaHistory) {
     const data = await generateRequirements(description, qaHistory);
     setFlow((f) => ({ ...f, stage: "results", data, refineHistory: [] }));

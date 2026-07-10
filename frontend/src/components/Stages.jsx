@@ -1,8 +1,47 @@
+// The two "conversation" screens that run before results: describe the
+// project, then answer clarifying questions one at a time. Grouped here
+// since they're simple forms used only by App.jsx's flow.
 import { useState } from "react";
 
 const MAX_QUESTIONS = 5;
 
-export default function QuestionsStage({
+// Stage 1: free-text project description. Calls onStart(description) on submit.
+export function DescribeStage({ onStart, loading, error }) {
+  const [desc, setDesc] = useState("");
+
+  function handleStart() {
+    onStart(desc);
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <h2 className="text-lg font-semibold text-ink mb-3">Describe your project</h2>
+      <textarea
+        value={desc}
+        onChange={(e) => setDesc(e.target.value)}
+        rows={6}
+        placeholder="e.g. A clinic appointment system where patients book online."
+        className="w-full rounded-lg border border-border px-3.5 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent"
+      />
+      {error && (
+        <div className="mt-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3.5 py-2.5">
+          {error}
+        </div>
+      )}
+      <button
+        onClick={handleStart}
+        disabled={loading}
+        className="mt-3 rounded-lg bg-accent hover:bg-accent-dark text-white font-medium px-5 py-2.5 text-sm transition-colors disabled:opacity-60"
+      >
+        {loading ? "Thinking of the first question..." : "Start"}
+      </button>
+    </div>
+  );
+}
+
+// Stage 2: one clarifying question at a time, up to MAX_QUESTIONS.
+// Calls onAnswer(answer) per question, or onSkip() to jump straight to results.
+export function QuestionsStage({
   description,
   qaHistory,
   currentQuestion,
