@@ -1,7 +1,6 @@
 """Everything related to calling Gemini. Reusable by any interface."""
 import os
 import json
-import streamlit as st
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -13,7 +12,6 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL = "gemini-2.5-flash"
 
 
-@st.cache_resource
 def _client():
     return genai.Client(api_key=API_KEY)
 
