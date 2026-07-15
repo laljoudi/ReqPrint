@@ -4,6 +4,7 @@ import json
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from functools import lru_cache
 
 from prompts import GENERATE_PROMPT, REVISE_PROMPT, NEXT_QUESTION_PROMPT
 
@@ -11,7 +12,7 @@ load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL = "gemini-2.5-flash"
 
-
+@lru_cache
 def _client():
     return genai.Client(api_key=API_KEY)
 
