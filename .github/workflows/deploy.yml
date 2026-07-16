@@ -43,6 +43,6 @@ jobs:
         run: |
           aws ecs update-express-gateway-service \
             --service-arn $(aws ecs list-services --cluster default --region ${{ env.AWS_REGION }} --query 'serviceArns[0]' --output text) \
-            --primary-container '{"name":"Main","image":"871049984116.dkr.ecr.us-east-1.amazonaws.com/reqprint:latest","containerPort":8000}' \
+            --primary-container '{"image":"871049984116.dkr.ecr.us-east-1.amazonaws.com/reqprint:latest","containerPort":8000}' \
             --health-check-path "/api/health" \
             --region ${{ env.AWS_REGION }}
