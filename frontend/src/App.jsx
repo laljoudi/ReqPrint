@@ -1,104 +1,91 @@
-// App.jsx is the "brain" of the app: it holds all the state (what stage we're
-// on, the data collected so far) and decides which screen to show. Each
-// screen component below is "dumb" - it just displays props and calls the
-// on... callbacks passed to it; App.jsx is the only place state changes.
+// App.jsx is the "brain" of the app: it holds all the state (what stage
+// we're on, the data collected so far) and decides which screen to show.
+// Each screen component below is "dumb" - it just displays props and calls
+// the on... callbacks passed to it; App.jsx is the only place state changes.
 import { useState } from "react";
-import Header from "./components/Header";
-import LoginScreen from "./components/LoginScreen";
-import { DescribeStage, QuestionsStage } from "./components/Stages";
-import ResultsStage from "./components/ResultsStage";
+import WelcomeScreen from "./components/WelcomeScreen";
+import ChatStage from "./components/ChatStage";
+import DocumentStage from "./components/DocumentStage";
 import { nextQuestion, generateRequirements, reviseRequirements, exportDocx } from "./lib/api";
 
-const MAX_QUESTIONS = 5;
+const MAX_QUESTIONS = 8;
 
 // The three-stage flow, and everything gathered along the way.
-// stage moves describe -> questions -> results; "Start over" resets to this.
+// stage moves welcome -> chat -> document; "Start over" resets to this.
 const emptyFlow = {
-  stage: "describe",
+  stage: "welcome",
   description: "",
   qaHistory: [],
   currentQuestion: null,
+  readyToGenerate: false,
   data: null,
   refineHistory: [],
 };
 
 function App() {
-  const [loggedIn, setLoggedIn] = useState(false);
   const [flow, setFlow] = useState(emptyFlow);
 
-  const [describeLoading, setDescribeLoading] = useState(false);
-  const [describeError, setDescribeError] = useState("");
-  const [questionLoading, setQuestionLoading] = useState(false);
-  const [questionError, setQuestionError] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [refining, setRefining] = useState(false);
   const [refineError, setRefineError] = useState("");
 
-  // Calls POST /generate and moves to the results stage.
-  async function runGeneration(description, qaHistory) {
-    const data = await generateRequirements(description, qaHistory);
-    setFlow((f) => ({ ...f, stage: "results", data, refineHistory: [] }));
-  }
-
-  async function handleStart(desc) {
-    if (!desc.trim()) {
-      setDescribeError("Please enter a description first.");
-      return;
-    }
-    setDescribeError("");
-    setDescribeLoading(true);
+  // First message in the chat: the project description. Calls POST /api/next-question.
+  async function handleDescribe(desc) {
+    setChatError("");
+    setChatLoading(true);
     try {
       const result = await nextQuestion(desc, []);
-      if (result.done) {
-        await runGeneration(desc, []);
-      } else {
-        setFlow((f) => ({
-          ...f,
-          description: desc,
-          qaHistory: [],
-          currentQuestion: result.question,
-          stage: "questions",
-        }));
-      }
+      setFlow((f) => ({
+        ...f,
+        description: desc,
+        qaHistory: [],
+        currentQuestion: result.done ? null : result.question,
+        readyToGenerate: !!result.done,
+      }));
     } catch (err) {
-      setDescribeError(err.message);
+      setChatError(err.message);
     } finally {
-      setDescribeLoading(false);
+      setChatLoading(false);
     }
   }
 
+  // Answering the current question. Calls POST /api/next-question with the updated history.
   async function handleAnswer(answer) {
     const newHistory = [...flow.qaHistory, { q: flow.currentQuestion, a: answer }];
     setFlow((f) => ({ ...f, qaHistory: newHistory }));
-    setQuestionError("");
-    setQuestionLoading(true);
+    setChatError("");
+    setChatLoading(true);
     try {
       if (newHistory.length >= MAX_QUESTIONS) {
-        await runGeneration(flow.description, newHistory);
+        setFlow((f) => ({ ...f, currentQuestion: null, readyToGenerate: true }));
       } else {
         const result = await nextQuestion(flow.description, newHistory);
-        if (result.done) {
-          await runGeneration(flow.description, newHistory);
-        } else {
-          setFlow((f) => ({ ...f, currentQuestion: result.question }));
-        }
+        setFlow((f) => ({
+          ...f,
+          currentQuestion: result.done ? null : result.question,
+          readyToGenerate: !!result.done,
+        }));
       }
     } catch (err) {
-      setQuestionError(err.message);
+      setChatError(err.message);
     } finally {
-      setQuestionLoading(false);
+      setChatLoading(false);
     }
   }
 
-  async function handleSkip() {
-    setQuestionError("");
-    setQuestionLoading(true);
+  // "Generate requirements document" / "skip remaining questions". Calls POST /api/generate.
+  async function handleGenerate() {
+    setChatError("");
+    setChatLoading(true);
     try {
-      await runGeneration(flow.description, flow.qaHistory);
+      const data = await generateRequirements(flow.description, flow.qaHistory);
+      setFlow((f) => ({ ...f, stage: "document", data, refineHistory: [], readyToGenerate: false }));
     } catch (err) {
-      setQuestionError(err.message);
+      setChatError(err.message);
     } finally {
-      setQuestionLoading(false);
+      setChatLoading(false);
     }
   }
 
@@ -136,53 +123,53 @@ function App() {
     }
   }
 
+  function handleBackToChat() {
+    setFlow((f) => ({ ...f, stage: "chat", readyToGenerate: true }));
+  }
+
   function handleStartOver() {
     setFlow(emptyFlow);
-    setDescribeError("");
-    setQuestionError("");
+    setChatError("");
     setRefineError("");
   }
 
-  if (!loggedIn) {
-    return <LoginScreen onLoggedIn={() => setLoggedIn(true)} />;
+  if (flow.stage === "welcome") {
+    return <WelcomeScreen onStart={() => setFlow((f) => ({ ...f, stage: "chat" }))} />;
   }
 
-  return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-5xl mx-auto px-6 py-8">
-        <Header />
+  if (flow.stage === "chat") {
+    return (
+      <ChatStage
+        description={flow.description}
+        qaHistory={flow.qaHistory}
+        currentQuestion={flow.currentQuestion}
+        readyToGenerate={flow.readyToGenerate}
+        onDescribe={handleDescribe}
+        onAnswer={handleAnswer}
+        onGenerate={handleGenerate}
+        loading={chatLoading}
+        error={chatError}
+      />
+    );
+  }
 
-        {flow.stage === "describe" && (
-          <DescribeStage onStart={handleStart} loading={describeLoading} error={describeError} />
-        )}
+  if (flow.stage === "document" && flow.data) {
+    return (
+      <DocumentStage
+        data={flow.data}
+        onDownload={handleDownload}
+        downloading={downloading}
+        onStartOver={handleStartOver}
+        onBackToChat={handleBackToChat}
+        onRefine={handleRefine}
+        refineHistory={flow.refineHistory}
+        refining={refining}
+        refineError={refineError}
+      />
+    );
+  }
 
-        {flow.stage === "questions" && (
-          <QuestionsStage
-            description={flow.description}
-            qaHistory={flow.qaHistory}
-            currentQuestion={flow.currentQuestion}
-            onAnswer={handleAnswer}
-            onSkip={handleSkip}
-            loading={questionLoading}
-            error={questionError}
-          />
-        )}
-
-        {flow.stage === "results" && flow.data && (
-          <ResultsStage
-            data={flow.data}
-            onDownload={handleDownload}
-            downloading={downloading}
-            onStartOver={handleStartOver}
-            onRefine={handleRefine}
-            refineHistory={flow.refineHistory}
-            refining={refining}
-            refineError={refineError}
-          />
-        )}
-      </div>
-    </div>
-  );
+  return null;
 }
 
 export default App;
