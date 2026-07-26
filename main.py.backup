@@ -5,14 +5,10 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-from google.genai import errors as genai_errors
 
 from ai import next_question, generate_requirements, revise_requirements
 from export import build_docx
@@ -20,11 +16,7 @@ from export import build_docx
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 
-limiter = Limiter(key_func=get_remote_address)
-
 app = FastAPI(title="ReqPrint API")
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Every endpoint below lives under /api/... so it can never collide with a
 # React file/route once the frontend is mounted at "/" further down.
@@ -61,56 +53,42 @@ def final_input_text(description: str, qa_history: list[QAItem]) -> str:
     return text
 
 
-def call_gemini(func, *args):
-    """Run a Gemini-backed function, translating an exhausted-quota error
-    (google.genai 429 / RESOURCE_EXHAUSTED) into a distinct 503 so the frontend
-    can tell a quota problem apart from a genuine server error. Any other Gemini
-    API error becomes a plain 500."""
-    try:
-        return func(*args)
-    except genai_errors.APIError as e:
-        if getattr(e, "code", None) == 429:
-            raise HTTPException(status_code=503, detail="quota_exhausted")
-        raise HTTPException(status_code=500, detail="Generation failed.")
-
-
 @api.get("/health")
 def health():
     return {"message": "ReqPrint API is running"}
 
 
 @api.post("/next-question")
-@limiter.limit("12/day")
-def next_question_endpoint(request: Request, req: NextQuestionRequest):
+def next_question_endpoint(req: NextQuestionRequest):
     """Asks Gemini for the next clarifying question based on the description and answers so far."""
     if not API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not found. Check your .env file.")
     qa_history = [{"q": qa.q, "a": qa.a} for qa in req.qa_history]
-    return call_gemini(next_question, req.description, qa_history)
+    return next_question(req.description, qa_history)
 
 
 @api.post("/generate")
-@limiter.limit("2/day")
-def generate_endpoint(request: Request, req: GenerateRequest):
+def generate_endpoint(req: GenerateRequest):
     """Generates the structured requirements document from the description + answered questions."""
     if not API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not found. Check your .env file.")
     text = final_input_text(req.description, req.qa_history)
-    return call_gemini(generate_requirements, text)
+    return generate_requirements(text)
 
 
 @api.post("/revise")
-@limiter.limit("4/day")
-def revise_endpoint(request: Request, req: ReviseRequest):
+def revise_endpoint(req: ReviseRequest):
     """Edits the existing requirements document based on a free-text instruction."""
     if not API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not found. Check your .env file.")
-    return call_gemini(revise_requirements, req.data, req.instruction)
+    try:
+        return revise_requirements(req.data, req.instruction)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update failed: {e}")
 
 
 @api.post("/export")
-@limiter.limit("4/day")
-def export_endpoint(request: Request, data: dict):
+def export_endpoint(data: dict):
     """Builds a .docx file from the requirements data and returns it for download."""
     buf = build_docx(data)
     return StreamingResponse(

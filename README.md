@@ -1,71 +1,95 @@
 # ReqPrint
 
-An AI Business Analysis assistant. You describe a project in plain language, answer a
-few clarifying questions, and it produces structured software requirements
-(functional/non-functional requirements, user stories, acceptance criteria, use cases,
-assumptions) — exportable as a Word document.
+**AI-Powered Requirements Engineering — turn a plain-language idea into a structured Software Requirements Specification.**
 
-## How the project is laid out
+[Live demo](LINK)
 
-```
-ReqPrint/
-├── ai.py              # Talks to Gemini: next_question(), generate_requirements(), revise_requirements()
-├── prompts.py         # All prompt text used by ai.py
-├── export.py          # Builds the .docx file from the requirements data
-├── main.py            # FastAPI backend - turns the functions above into web endpoints
-├── requirements.txt   # Python dependencies
-├── .env                # GEMINI_API_KEY and APP_PASSWORD (never committed)
-│
-└── frontend/           # The React app (what you see in the browser)
-    ├── index.html
-    ├── vite.config.js  # Dev server + build config
-    └── src/
-        ├── main.jsx           # Boots React into the page
-        ├── App.jsx            # The "brain": holds all state, decides which screen to show
-        ├── index.css          # Tailwind + the app's color palette
-        ├── lib/api.js         # Every call to the backend lives here (one function per endpoint)
-        └── components/
-            ├── Header.jsx       # Top bar (logo + title)
-            ├── LoginScreen.jsx  # Password screen
-            ├── Stages.jsx       # "Describe" and "Questions" screens
-            ├── ResultsStage.jsx # The results page: tabs, download, start over
-            ├── ResultTabs.jsx   # The 5 tab contents shown inside ResultsStage
-            └── RefinePanel.jsx  # The "ask for a change" sidebar
-```
+Writing software requirements usually means hours of stakeholder interviews and
+documentation before a single line of a spec exists. ReqPrint compresses that: you
+describe your project in plain language, it asks the adaptive clarifying questions a
+business analyst would, and then it generates a structured requirements document you can
+refine and export. The goal isn't to replace analysis — it's to get from a rough idea to
+a solid first draft in minutes instead of days.
 
-**ai.py, prompts.py, and export.py are unchanged from the original Streamlit app.**
-The migration only changed how those functions are *called* — first from a Streamlit
-script, now from a web server (`main.py`) and a browser app (`frontend/`).
+## Features
 
-## How a request flows, end to end
+- **Adaptive clarifying questions** — each question builds on your previous answer,
+  deliberately covering different requirement areas, and stops once there's enough
+  context rather than asking a fixed list.
+- **Structured specification** — generates functional & non-functional requirements,
+  user stories, acceptance criteria, and use cases, laid out in clear sections.
+- **Refine panel** — adjust any section conversationally until the requirements match
+  what you actually meant.
+- **One-click Word export** — download the whole spec as a polished `.docx`, ready to
+  share.
 
-1. You type something in the browser (React, running on `localhost:5174`).
-2. React calls a function in `frontend/src/lib/api.js`, e.g. `generateRequirements(...)`.
-3. That function sends an HTTP request to the FastAPI backend (`main.py`, running on
-   `localhost:8000`), e.g. `POST /generate`.
-4. `main.py` calls the matching function in `ai.py`, which calls Gemini.
-5. The result comes back through the same chain and React displays it.
+## How It Works
 
-Your Gemini API key and app password only ever live on the backend (`main.py` /
-`ai.py`) — the browser never sees them.
+1. **Describe your idea** — a sentence or two in plain language is enough.
+2. **Answer clarifying questions** — a short, adaptive back-and-forth that fills in the gaps.
+3. **Requirements generated in sections** — a structured spec, organized the way a real one is.
+4. **Export to Word** — one click produces a shareable `.docx`.
 
-## Running it locally
+## Built With
 
-Two servers, in two terminals, from the project root:
+- **React** — single-page frontend
+- **FastAPI** — REST API backend
+- **Google Gemini API** — the language model behind the questions and generation
+- **Docker** — single multi-stage image
+- **AWS ECS + ECR** — container hosting and registry
+- **GitHub Actions** — CI/CD
+
+## Engineering Highlights
+
+The interesting parts of this project are less about the tool list and more about a few
+deliberate decisions.
+
+**Multi-stage prompting.** Rather than asking the model to turn a raw description
+straight into a spec, ReqPrint separates *elicitation* from *generation*. One stage runs
+the clarifying-question interview; a distinct stage takes that fuller context and
+produces the structured document. Splitting the work this way consistently yields more
+complete, less hand-wavy requirements than a single do-everything prompt, because the
+model isn't simultaneously interviewing and drafting — it does one job at a time.
+
+**Single-image architecture.** The React frontend and the FastAPI backend are built into
+one multi-stage Docker image: a Node stage compiles the frontend to static files, and the
+final Python stage serves both that build and the API from a single process. This means
+the artifact running in production is byte-for-byte the same thing that runs locally —
+there's no separate frontend host, no CORS juggling between environments, and no "works on
+my machine" gap between dev and prod.
+
+**Automated deployment with no stored credentials.** Every push to `main` triggers a
+GitHub Actions workflow that builds the image, pushes it to a container registry, and
+rolls out the new version on AWS ECS. Crucially, the pipeline authenticates to AWS via
+OIDC — GitHub exchanges a short-lived token for temporary AWS credentials at run time — so
+there are **no long-lived AWS access keys stored** in the repository or CI secrets. Deploys
+are hands-off and the credential blast radius stays minimal.
+
+## Running Locally
+
+ReqPrint ships as a single Docker image that serves both the API and the built frontend on
+one port.
 
 ```bash
-# Terminal 1 — backend (http://localhost:8000)
-.venv/bin/uvicorn main:app --reload --port 8000
+# 1. Clone
+git clone https://github.com/<your-username>/ReqPrint.git
+cd ReqPrint
 
-# Terminal 2 — frontend (http://localhost:5173, or next free port)
-cd frontend && npm run dev
+# 2. Create a .env with your Gemini API key (variable names + placeholders only)
+cat > .env <<'EOF'
+GEMINI_API_KEY=your_key_here
+EOF
+
+# 3. Build the image
+docker build -t reqprint .
+
+# 4. Run it
+docker run --env-file .env -p 8000:8000 reqprint
 ```
 
-Then open whatever URL the frontend terminal prints.
+Then open **http://localhost:8000**.
 
-## Files you generally won't need to touch
+> You'll need your own [Google Gemini API key](https://aistudio.google.com/app/apikey). The
+> key stays server-side — it's read by the backend and never exposed to the browser.
 
-- `frontend/.oxlintrc.json` — linter config, used by `npm run lint`.
-- `frontend/public/favicon.svg` — the browser tab icon.
-- `test_api.py` — a standalone CLI script for manually trying `next_question()`
-  outside of any web server; not part of the app itself.
+## Screenshots

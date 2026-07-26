@@ -6,24 +6,34 @@
 // dev-server proxy (see vite.config.js) forwards "/api/..." to the backend.
 const API_BASE = "/api";
 
+// Turns an HTTP error into a friendly, user-facing message. We never surface
+// raw status codes or backend error text to the user.
+// - 429: our own daily rate limit (slowapi) was hit.
+// - 503 with detail "quota_exhausted": the backend distinguishes an exhausted
+//   Gemini quota from a generic failure (see call_gemini in main.py).
+// - anything else: a generic fallback.
+async function friendlyMessage(res) {
+  if (res.status === 429) {
+    return "You've reached today's usage limit. Please try again tomorrow.";
+  }
+  if (res.status === 503) {
+    const body = await res.json().catch(() => ({}));
+    if (body.detail === "quota_exhausted") {
+      return "The service is busy right now. Please try again later.";
+    }
+  }
+  return "Something went wrong. Please try again.";
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed (${res.status})`);
+    throw new Error(await friendlyMessage(res));
   }
   return res;
-}
-
-export async function login(username, password) {
-  const res = await request("/login", {
-    method: "POST",
-    body: JSON.stringify({ username, password }),
-  });
-  return res.json();
 }
 
 export async function nextQuestion(description, qaHistory) {

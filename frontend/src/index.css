@@ -1,18 +1,20 @@
 @import "tailwindcss";
 
+/* Palette matches the "ReqPrint Interface Design" mockup (Claude Design
+   project a616fe85-e4ee-4b68-a370-05fecee3ed46, ReqPrint.dc.html). */
 @theme {
-  --color-accent: #2563eb;
-  --color-accent-dark: #1d4ed8;
-  --color-ink: #1a1a19;
-  --color-muted: #6b7280;
-  --color-border: #e5e7eb;
-  --color-func-bg: #eef4fb;
-  --color-func-fg: #2c5988;
-  --color-nonfunc-bg: #ecf6ee;
-  --color-nonfunc-fg: #3a6b45;
-  --color-story-bg: #f1eefb;
-  --color-story-border: #e0d9f5;
-  --color-story-id: #57459b;
+  --color-accent: #ba55d3;
+  --color-accent-dark: #9a3fb8;
+  --color-ink: #333333;
+  --color-muted: #6e6e6e;
+  --color-hint: #8a8a8a;
+  --color-border: #e0e0e0;
+  --color-nonfunc: #8e44ad;
+  --color-bubble: #f0eaf5;
+
+  --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
 * {
@@ -21,7 +23,29 @@
 
 body {
   margin: 0;
-  background: #ffffff;
+  background: #faf9f6;
   color: var(--color-ink);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans);
+}
+
+@keyframes rp-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes rp-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
 }
