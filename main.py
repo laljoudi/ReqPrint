@@ -12,13 +12,13 @@ from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from google.genai import errors as genai_errors
+from groq import APIError as GroqAPIError, RateLimitError
 
-from ai import next_question, generate_requirements, revise_requirements
+from ai import next_question, generate_requirements, revise_requirements, review_requirements
 from export import build_docx
 
 load_dotenv()
-API_KEY = os.getenv("GEMINI_API_KEY")
+API_KEY = os.getenv("GROQ_API_KEY")
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -53,6 +53,12 @@ class ReviseRequest(BaseModel):
     instruction: str
 
 
+class ReviewRequest(BaseModel):
+    description: str
+    qa_history: list[QAItem] = []
+    data: dict
+
+
 def final_input_text(description: str, qa_history: list[QAItem]) -> str:
     """Combine the description with the collected answers, same as the Streamlit app."""
     text = description + "\n\nClarifying questions and answers:\n"
@@ -61,15 +67,17 @@ def final_input_text(description: str, qa_history: list[QAItem]) -> str:
     return text
 
 
-def call_gemini(func, *args):
-    """Run a Gemini-backed function, translating an exhausted-quota error
-    (google.genai 429 / RESOURCE_EXHAUSTED) into a distinct 503 so the frontend
-    can tell a quota problem apart from a genuine server error. Any other Gemini
+def call_groq(func, *args):
+    """Run a Groq-backed function, translating an exhausted-quota error
+    (Groq 429 / rate limit) into a distinct 503 so the frontend
+    can tell a quota problem apart from a genuine server error. Any other Groq
     API error becomes a plain 500."""
     try:
         return func(*args)
-    except genai_errors.APIError as e:
-        if getattr(e, "code", None) == 429:
+    except RateLimitError:
+        raise HTTPException(status_code=503, detail="quota_exhausted")
+    except GroqAPIError as e:
+        if getattr(e, "status_code", None) == 429:
             raise HTTPException(status_code=503, detail="quota_exhausted")
         raise HTTPException(status_code=500, detail="Generation failed.")
 
@@ -82,11 +90,11 @@ def health():
 @api.post("/next-question")
 @limiter.limit("12/day")
 def next_question_endpoint(request: Request, req: NextQuestionRequest):
-    """Asks Gemini for the next clarifying question based on the description and answers so far."""
+    """Asks Groq for the next clarifying question based on the description and answers so far."""
     if not API_KEY:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not found. Check your .env file.")
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not found. Check your .env file.")
     qa_history = [{"q": qa.q, "a": qa.a} for qa in req.qa_history]
-    return call_gemini(next_question, req.description, qa_history)
+    return call_groq(next_question, req.description, qa_history)
 
 
 @api.post("/generate")
@@ -94,9 +102,9 @@ def next_question_endpoint(request: Request, req: NextQuestionRequest):
 def generate_endpoint(request: Request, req: GenerateRequest):
     """Generates the structured requirements document from the description + answered questions."""
     if not API_KEY:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not found. Check your .env file.")
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not found. Check your .env file.")
     text = final_input_text(req.description, req.qa_history)
-    return call_gemini(generate_requirements, text)
+    return call_groq(generate_requirements, text)
 
 
 @api.post("/revise")
@@ -104,8 +112,18 @@ def generate_endpoint(request: Request, req: GenerateRequest):
 def revise_endpoint(request: Request, req: ReviseRequest):
     """Edits the existing requirements document based on a free-text instruction."""
     if not API_KEY:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not found. Check your .env file.")
-    return call_gemini(revise_requirements, req.data, req.instruction)
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not found. Check your .env file.")
+    return call_groq(revise_requirements, req.data, req.instruction)
+
+
+@api.post("/review")
+@limiter.limit("4/day")
+def review_endpoint(request: Request, req: ReviewRequest):
+    """Reviews the generated requirements from BA, developer, and QA perspectives."""
+    if not API_KEY:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not found. Check your .env file.")
+    qa_history = [{"q": qa.q, "a": qa.a} for qa in req.qa_history]
+    return call_groq(review_requirements, req.description, qa_history, req.data)
 
 
 @api.post("/export")

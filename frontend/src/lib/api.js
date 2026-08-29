@@ -10,7 +10,7 @@ const API_BASE = "/api";
 // raw status codes or backend error text to the user.
 // - 429: our own daily rate limit (slowapi) was hit.
 // - 503 with detail "quota_exhausted": the backend distinguishes an exhausted
-//   Gemini quota from a generic failure (see call_gemini in main.py).
+//   provider quota from a generic failure (see call_groq in main.py).
 // - anything else: a generic fallback.
 async function friendlyMessage(res) {
   if (res.status === 429) {
@@ -56,6 +56,14 @@ export async function reviseRequirements(data, instruction) {
   const res = await request("/revise", {
     method: "POST",
     body: JSON.stringify({ data, instruction }),
+  });
+  return res.json();
+}
+
+export async function reviewRequirements(description, qaHistory, data) {
+  const res = await request("/review", {
+    method: "POST",
+    body: JSON.stringify({ description, qa_history: qaHistory, data }),
   });
   return res.json();
 }

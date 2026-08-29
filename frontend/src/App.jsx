@@ -6,7 +6,13 @@ import { useState } from "react";
 import WelcomeScreen from "./components/WelcomeScreen";
 import ChatStage from "./components/ChatStage";
 import DocumentStage from "./components/DocumentStage";
-import { nextQuestion, generateRequirements, reviseRequirements, exportDocx } from "./lib/api";
+import {
+  nextQuestion,
+  generateRequirements,
+  reviseRequirements,
+  reviewRequirements,
+  exportDocx,
+} from "./lib/api";
 
 const MAX_QUESTIONS = 8;
 
@@ -19,6 +25,7 @@ const emptyFlow = {
   currentQuestion: null,
   readyToGenerate: false,
   data: null,
+  review: null,
   refineHistory: [],
 };
 
@@ -30,6 +37,8 @@ function App() {
   const [downloading, setDownloading] = useState(false);
   const [refining, setRefining] = useState(false);
   const [refineError, setRefineError] = useState("");
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewError, setReviewError] = useState("");
 
   // First message in the chat: the project description. Calls POST /api/next-question.
   async function handleDescribe(desc) {
@@ -81,7 +90,14 @@ function App() {
     setChatLoading(true);
     try {
       const data = await generateRequirements(flow.description, flow.qaHistory);
-      setFlow((f) => ({ ...f, stage: "document", data, refineHistory: [], readyToGenerate: false }));
+      setFlow((f) => ({
+        ...f,
+        stage: "document",
+        data,
+        review: null,
+        refineHistory: [],
+        readyToGenerate: false,
+      }));
     } catch (err) {
       setChatError(err.message);
     } finally {
@@ -114,12 +130,26 @@ function App() {
       setFlow((f) => ({
         ...f,
         data,
+        review: null,
         refineHistory: [...f.refineHistory, instruction],
       }));
     } catch (err) {
       setRefineError(err.message);
     } finally {
       setRefining(false);
+    }
+  }
+
+  async function handleReview() {
+    setReviewError("");
+    setReviewing(true);
+    try {
+      const review = await reviewRequirements(flow.description, flow.qaHistory, flow.data);
+      setFlow((f) => ({ ...f, review }));
+    } catch (err) {
+      setReviewError(err.message);
+    } finally {
+      setReviewing(false);
     }
   }
 
@@ -131,6 +161,7 @@ function App() {
     setFlow(emptyFlow);
     setChatError("");
     setRefineError("");
+    setReviewError("");
   }
 
   if (flow.stage === "welcome") {
@@ -165,6 +196,10 @@ function App() {
         refineHistory={flow.refineHistory}
         refining={refining}
         refineError={refineError}
+        review={flow.review}
+        onReview={handleReview}
+        reviewing={reviewing}
+        reviewError={reviewError}
       />
     );
   }

@@ -28,6 +28,34 @@ Return ONLY valid JSON with exactly this structure:
 {JSON_SHAPE}
 Keep everything in English. Keep unchanged parts intact; do not drop existing content unless asked."""
 
+REVIEW_PROMPT = """You are reviewing a generated Software Requirements Specification before export.
+Evaluate it from exactly three perspectives: Business Analyst, Developer, and QA Tester.
+
+Return ONLY valid JSON with exactly this structure:
+{
+  "issues": [
+    {
+      "role": "Business Analyst",
+      "severity": "high",
+      "issue": "Short description of the problem.",
+      "why_it_matters": "Why this affects the project.",
+      "suggested_fix": "Concrete improvement suggestion."
+    }
+  ]
+}
+
+Rules:
+- "role" must be exactly one of: "Business Analyst", "Developer", "QA Tester".
+- "severity" must be exactly one of: "low", "medium", "high".
+- Return around 5 to 8 useful issues.
+- Avoid generic advice. Each issue must refer to something specific in the provided SRS,
+  original description, or clarifying answers.
+- Focus on real requirement quality problems: ambiguity, missing actors, missing edge
+  cases, weak acceptance criteria, unclear data rules, missing constraints, conflicting
+  assumptions, missing failure states, and requirements that are hard to test.
+- If the SRS is already strong, still return the most useful improvement opportunities.
+- Keep each field concise and practical. Do not include markdown."""
+
 NEXT_QUESTION_PROMPT = """You are an experienced Business Analyst interviewing a user.
 You receive a project description and the previous questions and answers.
 

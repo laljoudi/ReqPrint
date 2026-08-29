@@ -34,7 +34,7 @@ a solid first draft in minutes instead of days.
 
 - **React** — single-page frontend
 - **FastAPI** — REST API backend
-- **Google Gemini API** — the language model behind the questions and generation
+- **Groq API** — the language model provider behind the questions and generation
 - **Docker** — single multi-stage image
 - **AWS ECS + ECR** — container hosting and registry
 - **GitHub Actions** — CI/CD
@@ -75,9 +75,9 @@ one port.
 git clone https://github.com/<your-username>/ReqPrint.git
 cd ReqPrint
 
-# 2. Create a .env with your Gemini API key (variable names + placeholders only)
+# 2. Create a .env with your Groq API key (variable names + placeholders only)
 cat > .env <<'EOF'
-GEMINI_API_KEY=your_key_here
+GROQ_API_KEY=your_key_here
 EOF
 
 # 3. Build the image
@@ -89,7 +89,7 @@ docker run --env-file .env -p 8000:8000 reqprint
 
 Then open **http://localhost:8000**.
 
-> You'll need your own [Google Gemini API key](https://aistudio.google.com/app/apikey). The
+> You'll need your own [Groq API key](https://console.groq.com/keys). The
 > key stays server-side — it's read by the backend and never exposed to the browser.
 
 ## Screenshots
