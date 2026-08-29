@@ -1,4 +1,4 @@
-// The 5 numbered sections shown stacked on the Document stage (see
+// The numbered sections shown stacked on the Document stage (see
 // DocumentStage.jsx). Each section owns its own numbered heading + anchor id
 // so the TOC sidebar can link straight to it.
 
@@ -186,7 +186,7 @@ export function UseCasesSection({ useCases }) {
 
 export function AssumptionsSection({ assumptions }) {
   return (
-    <section id="sec-5" className="mb-5">
+    <section id="sec-5" className="mb-12">
       <SectionHeading num="5" title="Assumptions" />
       <p className="text-[13px] text-hint mb-4">
         Details not stated in the description that ReqPrint inferred to complete the analysis.
@@ -214,6 +214,87 @@ export function AssumptionsSection({ assumptions }) {
       ) : (
         <div className="rounded-[14px] bg-blue-50 text-sm text-blue-800 px-4 py-3">
           No additional assumptions were made.
+        </div>
+      )}
+    </section>
+  );
+}
+
+const SEVERITY_STYLES = {
+  high: "bg-red-50 text-red-700 border-red-200",
+  medium: "bg-amber-50 text-amber-700 border-amber-200",
+  low: "bg-blue-50 text-blue-700 border-blue-200",
+};
+
+export function ReviewSection({ issues, loading, error }) {
+  return (
+    <section id="sec-6" className="mb-5">
+      <SectionHeading num="6" title="Review" />
+      <p className="text-[13px] text-hint mb-4">
+        Feedback from Business Analyst, Developer, and QA perspectives before export.
+      </p>
+
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3.5 py-2.5">
+          {error}
+        </div>
+      )}
+
+      {loading && !issues.length && (
+        <div className="bg-white border border-border rounded-[14px] px-5 py-4 text-sm text-[#4A4A4A]">
+          Reviewing requirements...
+        </div>
+      )}
+
+      {!loading && !error && !issues.length && (
+        <div className="bg-white border border-border rounded-[14px] px-5 py-4 text-sm text-[#4A4A4A]">
+          Run a review to check this SRS for ambiguity, gaps, risks, and testability issues.
+        </div>
+      )}
+
+      {!!issues.length && (
+        <div className="flex flex-col gap-3.5">
+          {issues.map((item, i) => {
+            const severity = String(item.severity || "").toLowerCase();
+            const severityClass = SEVERITY_STYLES[severity] || SEVERITY_STYLES.medium;
+            return (
+              <div key={i} className="bg-white border border-border rounded-[14px] overflow-hidden">
+                <div className="px-4 py-3 bg-[#F5F1F7] flex flex-wrap items-center gap-2.5">
+                  <span className="font-display font-bold text-[13px] text-ink">
+                    {item.role}
+                  </span>
+                  <span
+                    className={`border rounded px-2 py-0.5 text-[11px] font-bold uppercase ${severityClass}`}
+                  >
+                    {severity || "medium"}
+                  </span>
+                </div>
+                <div className="px-4 py-4">
+                  <h3 className="m-0 mb-3 font-display font-bold text-[15px] text-[#3A3A3A]">
+                    {item.issue}
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <div className="text-[11px] font-bold tracking-wide uppercase text-hint mb-1">
+                        Why it matters
+                      </div>
+                      <p className="m-0 text-[13px] leading-relaxed text-[#4A4A4A]">
+                        {item.why_it_matters}
+                      </p>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-bold tracking-wide uppercase text-hint mb-1">
+                        Suggested fix
+                      </div>
+                      <p className="m-0 text-[13px] leading-relaxed text-[#4A4A4A]">
+                        {item.suggested_fix}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
