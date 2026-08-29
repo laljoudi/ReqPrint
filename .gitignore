@@ -219,3 +219,4 @@ __marimo__/
 !frontend/src/lib/
 !frontend/src/lib/**
 trust-policy.json
+*.backup
