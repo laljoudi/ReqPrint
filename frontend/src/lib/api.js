@@ -68,6 +68,14 @@ export async function reviewRequirements(description, qaHistory, data) {
   return res.json();
 }
 
+export async function extractFromNotes(rawNotes) {
+  const res = await request("/extract-notes", {
+    method: "POST",
+    body: JSON.stringify({ raw_notes: rawNotes }),
+  });
+  return res.json();
+}
+
 export async function exportDocx(data) {
   const res = await request("/export", {
     method: "POST",

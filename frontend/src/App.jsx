@@ -11,6 +11,7 @@ import {
   generateRequirements,
   reviseRequirements,
   reviewRequirements,
+  extractFromNotes,
   exportDocx,
 } from "./lib/api";
 
@@ -28,6 +29,16 @@ const emptyFlow = {
   review: null,
   refineHistory: [],
 };
+
+// Turns raw pasted notes + their extracted open_questions into one description
+// string for the existing interview (next_question / NEXT_QUESTION_PROMPT are
+// untouched - this just gives them richer context to start from instead of a
+// blank slate, so the interview naturally asks about these gaps first).
+function seedDescriptionFromNotes(rawNotes, openQuestions) {
+  if (!openQuestions.length) return rawNotes;
+  const list = openQuestions.map((q) => `- ${q}`).join("\n");
+  return `${rawNotes}\n\nOpen questions identified from these notes - please prioritize asking about these:\n${list}`;
+}
 
 function App() {
   const [flow, setFlow] = useState(emptyFlow);
@@ -49,6 +60,31 @@ function App() {
       setFlow((f) => ({
         ...f,
         description: desc,
+        qaHistory: [],
+        currentQuestion: result.done ? null : result.question,
+        readyToGenerate: !!result.done,
+      }));
+    } catch (err) {
+      setChatError(err.message);
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
+  // Alternative first turn: raw pasted notes instead of a typed description.
+  // Calls POST /api/extract-notes, then feeds the result into the exact same
+  // POST /api/next-question call handleDescribe uses - the interview itself
+  // doesn't know or care whether it started from a description or from notes.
+  async function handleSubmitNotes(rawNotes) {
+    setChatError("");
+    setChatLoading(true);
+    try {
+      const extraction = await extractFromNotes(rawNotes);
+      const seeded = seedDescriptionFromNotes(rawNotes, extraction.open_questions);
+      const result = await nextQuestion(seeded, []);
+      setFlow((f) => ({
+        ...f,
+        description: seeded,
         qaHistory: [],
         currentQuestion: result.done ? null : result.question,
         readyToGenerate: !!result.done,
@@ -176,6 +212,7 @@ function App() {
         currentQuestion={flow.currentQuestion}
         readyToGenerate={flow.readyToGenerate}
         onDescribe={handleDescribe}
+        onSubmitNotes={handleSubmitNotes}
         onAnswer={handleAnswer}
         onGenerate={handleGenerate}
         loading={chatLoading}

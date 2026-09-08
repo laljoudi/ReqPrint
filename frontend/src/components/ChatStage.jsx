@@ -8,7 +8,9 @@
 // before; only the UI changed.
 import { useState } from "react";
 
-const INTRO = "Tell me about the project you're building.";
+const INTRO_DESCRIBE = "Tell me about the project you're building.";
+const INTRO_NOTES =
+  "Paste your raw notes below - I'll pull out clear requirements and flag what's still unclear.";
 
 const STEP_DEFS = [
   { n: "1", label: "Describe" },
@@ -86,14 +88,21 @@ export default function ChatStage({
   currentQuestion,
   readyToGenerate,
   onDescribe,
+  onSubmitNotes,
   onAnswer,
   onGenerate,
   loading,
   error,
 }) {
   const [input, setInput] = useState("");
+  // Only meaningful before a description exists yet - once the interview has
+  // started, there's nothing left to toggle.
+  const [mode, setMode] = useState("describe"); // "describe" | "notes"
 
-  const messages = [{ role: "assistant", text: INTRO }];
+  const isFirstTurn = !description;
+  const intro = isFirstTurn && mode === "notes" ? INTRO_NOTES : INTRO_DESCRIBE;
+
+  const messages = [{ role: "assistant", text: intro }];
   if (description) messages.push({ role: "user", text: description });
   for (const qa of qaHistory) {
     messages.push({ role: "assistant", text: qa.q });
@@ -108,8 +117,12 @@ export default function ChatStage({
     const text = input.trim();
     if (!text) return;
     setInput("");
-    if (!description) onDescribe(text);
-    else onAnswer(text);
+    if (!description) {
+      if (mode === "notes") onSubmitNotes(text);
+      else onDescribe(text);
+    } else {
+      onAnswer(text);
+    }
   }
 
   const showInput = !readyToGenerate;
@@ -154,12 +167,31 @@ export default function ChatStage({
           ) : (
             showInput && (
               <>
+                {isFirstTurn && (
+                  <div className="inline-flex rounded-lg border border-border p-0.5 mb-3">
+                    {[
+                      { key: "describe", label: "Describe your idea" },
+                      { key: "notes", label: "Paste meeting notes" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setMode(opt.key)}
+                        className={`px-3 py-1.5 rounded-[6px] text-[12.5px] font-semibold transition-colors ${
+                          mode === opt.key ? "bg-accent text-white" : "text-muted hover:text-ink"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <form
                   onSubmit={handleSubmit}
                   className="flex items-end gap-2.5 border border-border rounded-[14px] px-4 py-2.5 bg-white focus-within:border-accent focus-within:shadow-[0_0_0_4px_rgba(186,85,211,0.12)] transition"
                 >
                   <textarea
-                    rows={1}
+                    rows={isFirstTurn && mode === "notes" ? 6 : 1}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => {

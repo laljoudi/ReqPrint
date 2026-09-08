@@ -28,6 +28,36 @@ Return ONLY valid JSON with exactly this structure:
 {JSON_SHAPE}
 Keep everything in English. Keep unchanged parts intact; do not drop existing content unless asked."""
 
+# The response shape for this prompt is enforced by Groq's structured-output
+# schema (see NotesExtraction / _structured_chat in ai.py), not described here -
+# so this prompt only needs to explain what belongs in each field, not the JSON
+# envelope itself.
+NOTES_EXTRACTION_PROMPT = """You are an experienced Business Analyst making sense of raw,
+unstructured notes - meeting notes, scattered thoughts, a brain dump - before a proper
+requirements interview begins.
+
+Read the notes and sort what you find into three buckets:
+
+- clear_requirements: things the notes state plainly and unambiguously. Rewrite each as
+  one clean, standalone requirement sentence. Do not soften or hedge something the notes
+  were clear about.
+- implied_user_stories: things the notes strongly suggest but never say as a requirement -
+  a workflow, a role, a need that's obvious from context even though nobody wrote it down
+  as one. Phrase each as "As a ___, I want ___, so that ___". Only include ones a
+  reasonable analyst would infer with confidence - do not invent stories the notes don't
+  support.
+- open_questions: specific gaps, ambiguities, or decisions the notes leave open, where the
+  answer would materially change the resulting requirements (e.g. an actor mentioned but
+  never defined, a rule stated for one case but not its exceptions, a term used two
+  different ways). Each question must be concrete enough to ask in an interview - not
+  "what about edge cases?" but the specific edge case the notes left hanging.
+
+Rules:
+- Every item must trace back to something actually in the notes - don't fabricate content
+  the notes don't support, even to fill out a bucket.
+- Write everything in English, regardless of the notes' original language.
+- Keep each item concise and in plain language - no markdown, no numbering."""
+
 REVIEW_PROMPT = """You are reviewing a generated Software Requirements Specification before export.
 Evaluate it from exactly three perspectives: Business Analyst, Developer, and QA Tester.
 

@@ -14,7 +14,13 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from groq import APIError as GroqAPIError, RateLimitError
 
-from ai import next_question, generate_requirements, revise_requirements, review_requirements
+from ai import (
+    next_question,
+    generate_requirements,
+    revise_requirements,
+    review_requirements,
+    extract_from_notes,
+)
 from export import build_docx
 
 load_dotenv()
@@ -57,6 +63,10 @@ class ReviewRequest(BaseModel):
     description: str
     qa_history: list[QAItem] = []
     data: dict
+
+
+class ExtractNotesRequest(BaseModel):
+    raw_notes: str
 
 
 def final_input_text(description: str, qa_history: list[QAItem]) -> str:
@@ -124,6 +134,16 @@ def review_endpoint(request: Request, req: ReviewRequest):
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not found. Check your .env file.")
     qa_history = [{"q": qa.q, "a": qa.a} for qa in req.qa_history]
     return call_groq(review_requirements, req.description, qa_history, req.data)
+
+
+@api.post("/extract-notes")
+@limiter.limit("2/day")
+def extract_notes_endpoint(request: Request, req: ExtractNotesRequest):
+    """Extracts clear requirements, implied user stories, and open questions from
+    raw pasted notes - an alternative to typing a clean project description."""
+    if not API_KEY:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not found. Check your .env file.")
+    return call_groq(extract_from_notes, req.raw_notes)
 
 
 @api.post("/export")
