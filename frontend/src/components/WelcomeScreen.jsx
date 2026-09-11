@@ -44,7 +44,7 @@ export default function WelcomeScreen({ onStart }) {
           </h2>
           <button
             onClick={onStart}
-            className="inline-flex items-center gap-2.5 h-[50px] px-6 rounded-xl bg-accent hover:brightness-105 active:scale-[0.98] text-white font-display font-bold text-[15px] shadow-[0_10px_24px_rgba(186,85,211,0.28)] transition"
+            className="inline-flex items-center gap-2.5 h-[50px] px-6 rounded-xl bg-accent hover:brightness-105 active:scale-[0.98] text-white font-display font-bold text-[15px] shadow-[0_10px_24px_rgba(100,31,42,0.28)] transition"
           >
             Describe your project
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

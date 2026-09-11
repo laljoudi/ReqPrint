@@ -1,5 +1,10 @@
 """All prompt text lives here. Edit prompts without touching any logic."""
 
+# GENERATE_PROMPT and REVISE_PROMPT both reference this. The envelope itself
+# (which keys exist, at what nesting) is now enforced by structured-output
+# schemas (GeneratedRequirements in ai.py), not by this text - but the example
+# values here (US-01/UC-01 id conventions, the story_id linking convention)
+# are still useful guidance the schema alone can't express, so it stays.
 JSON_SHAPE = """{
   "requirements": {"functional": ["..."], "non_functional": ["..."]},
   "user_stories": [{"id": "US-01", "role": "...", "story": "As a ..., I want ..., so that ..."}],
@@ -58,25 +63,15 @@ Rules:
 - Write everything in English, regardless of the notes' original language.
 - Keep each item concise and in plain language - no markdown, no numbering."""
 
+# The response shape for this prompt - including the exact allowed values for
+# "role" and "severity" - is enforced by Groq's structured-output schema
+# (ReviewResult / ReviewIssue in ai.py), not just described here.
 REVIEW_PROMPT = """You are reviewing a generated Software Requirements Specification before export.
 Evaluate it from exactly three perspectives: Business Analyst, Developer, and QA Tester.
 
-Return ONLY valid JSON with exactly this structure:
-{
-  "issues": [
-    {
-      "role": "Business Analyst",
-      "severity": "high",
-      "issue": "Short description of the problem.",
-      "why_it_matters": "Why this affects the project.",
-      "suggested_fix": "Concrete improvement suggestion."
-    }
-  ]
-}
+Each issue needs: role, severity, issue, why_it_matters, suggested_fix.
 
 Rules:
-- "role" must be exactly one of: "Business Analyst", "Developer", "QA Tester".
-- "severity" must be exactly one of: "low", "medium", "high".
 - Return around 5 to 8 useful issues.
 - Avoid generic advice. Each issue must refer to something specific in the provided SRS,
   original description, or clarifying answers.
@@ -86,6 +81,10 @@ Rules:
 - If the SRS is already strong, still return the most useful improvement opportunities.
 - Keep each field concise and practical. Do not include markdown."""
 
+# The response shape for this prompt is enforced by Groq's structured-output
+# schema (see NextQuestionResult / _structured_chat in ai.py), not described here -
+# so this prompt only needs to explain what belongs in each field, not the JSON
+# envelope itself.
 NEXT_QUESTION_PROMPT = """You are an experienced Business Analyst interviewing a user.
 You receive a project description and the previous questions and answers.
 
@@ -103,6 +102,17 @@ STEP 2 - Analyze before asking:
 - Pick the UNCOVERED area that matters MOST for writing accurate requirements.
 
 STEP 3 - Ask ONE question about that area.
+
+STEP 4 - Suggest 3 possible answers to the question you just wrote in STEP 3.
+- Each option must be a plausible, concrete answer to that specific question, grounded
+  in the project description and everything answered so far - not a generic list of
+  options that could apply to any project.
+- The 3 options must be genuinely different from each other, not near-duplicates or
+  variations on the same idea.
+- Do NOT include an "other", "none of these", or catch-all option - the user can always
+  type their own answer instead of picking one.
+- When you determine you are done (STOPPING RULE below) and return no question, return
+  an empty list of suggested answers - there is nothing left to suggest answers to.
 
 Rules for a good question:
 - Each question must open a NEW area that has not been asked about AT ALL yet.
@@ -136,8 +146,4 @@ STOPPING RULE:
   what is out of scope, data, and one constraint (performance or security).
 - You MUST stop after 8 real answers, no matter what remains uncovered.
 - Do not ask follow-up questions just to add detail to an area already covered.
-
-Return ONLY valid JSON with exactly this structure:
-{"done": false, "question": "your next question here"}
-When you have enough information, return:
-{"done": true, "question": null}"""
+- When stopping, return no question and an empty list of suggested answers."""

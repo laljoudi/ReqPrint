@@ -137,7 +137,7 @@ def review_endpoint(request: Request, req: ReviewRequest):
 
 
 @api.post("/extract-notes")
-@limiter.limit("2/day")
+@limiter.limit("10/day")
 def extract_notes_endpoint(request: Request, req: ExtractNotesRequest):
     """Extracts clear requirements, implied user stories, and open questions from
     raw pasted notes - an alternative to typing a clean project description."""

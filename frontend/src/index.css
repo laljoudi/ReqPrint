@@ -1,16 +1,20 @@
 @import "tailwindcss";
 
-/* Palette matches the "ReqPrint Interface Design" mockup (Claude Design
-   project a616fe85-e4ee-4b68-a370-05fecee3ed46, ReqPrint.dc.html). */
+/* Warm palette: Soft Butter / Warm Cream / Velvet Burgundy / Deep Burgundy /
+   Warm Brown / Muted Taupe / Soft Beige / Dusty Rose. Every color used in the
+   app must trace back to one of these eight - no blue, purple, red, or amber
+   from Tailwind's default palette anywhere. */
 @theme {
-  --color-accent: #ba55d3;
-  --color-accent-dark: #9a3fb8;
-  --color-ink: #333333;
-  --color-muted: #6e6e6e;
-  --color-hint: #8a8a8a;
-  --color-border: #e0e0e0;
-  --color-nonfunc: #8e44ad;
-  --color-bubble: #f0eaf5;
+  --color-accent: #641f2a; /* Velvet Burgundy - primary accent */
+  --color-accent-dark: #48151e; /* Deep Burgundy - hover / stronger emphasis */
+  --color-ink: #332a28; /* Warm Brown - primary text */
+  --color-muted: #81756d; /* Muted Taupe - secondary text */
+  --color-hint: #81756d; /* Muted Taupe (palette has no second gray) */
+  --color-border: #e5d8c2; /* Soft Beige - borders and dividers */
+  --color-nonfunc: #48151e; /* Deep Burgundy - distinguishes NF from FR chips */
+  --color-bubble: #fbf8f1; /* Warm Cream - assistant chat bubble */
+  --color-surface: #fbf8f1; /* Warm Cream - secondary backgrounds / surfaces */
+  --color-rose: #b98f8f; /* Dusty Rose - sparing decorative accent only */
 
   --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
   --font-sans: "Inter", system-ui, sans-serif;
@@ -23,7 +27,7 @@
 
 body {
   margin: 0;
-  background: #faf9f6;
+  background: #f5ebd7; /* Soft Butter - primary background */
   color: var(--color-ink);
   font-family: var(--font-sans);
 }

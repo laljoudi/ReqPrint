@@ -4,8 +4,7 @@
 // the on... callbacks passed to it; App.jsx is the only place state changes.
 import { useState } from "react";
 import WelcomeScreen from "./components/WelcomeScreen";
-import ChatStage from "./components/ChatStage";
-import DocumentStage from "./components/DocumentStage";
+import WorkspaceScreen from "./components/WorkspaceScreen";
 import {
   nextQuestion,
   generateRequirements,
@@ -17,27 +16,33 @@ import {
 
 const MAX_QUESTIONS = 8;
 
-// The three-stage flow, and everything gathered along the way.
-// stage moves welcome -> chat -> document; "Start over" resets to this.
+// The two-stage flow, and everything gathered along the way.
+// stage moves welcome -> workspace; "Start over" resets to this. Within
+// "workspace", the interview and results share one screen - "data" existing
+// (not a stage change) is what switches the main content area from
+// placeholder to results and the conversation panel from Q&A to refine.
 const emptyFlow = {
   stage: "welcome",
   description: "",
   qaHistory: [],
   currentQuestion: null,
+  currentSuggestions: [],
   readyToGenerate: false,
   data: null,
   review: null,
   refineHistory: [],
 };
 
-// Turns raw pasted notes + their extracted open_questions into one description
-// string for the existing interview (next_question / NEXT_QUESTION_PROMPT are
-// untouched - this just gives them richer context to start from instead of a
-// blank slate, so the interview naturally asks about these gaps first).
-function seedDescriptionFromNotes(rawNotes, openQuestions) {
-  if (!openQuestions.length) return rawNotes;
+// Turns raw input + its extracted open_questions into one description string
+// for the interview (next_question / NEXT_QUESTION_PROMPT are untouched - this
+// just gives them richer context to start from instead of a blank slate, so
+// the interview naturally asks about these gaps first). For a clean
+// description, extraction naturally yields no open_questions, so this is a
+// no-op and the description passes through unchanged.
+function seedDescriptionFromNotes(rawInput, openQuestions) {
+  if (!openQuestions.length) return rawInput;
   const list = openQuestions.map((q) => `- ${q}`).join("\n");
-  return `${rawNotes}\n\nOpen questions identified from these notes - please prioritize asking about these:\n${list}`;
+  return `${rawInput}\n\nOpen questions identified from this input - please prioritize asking about these:\n${list}`;
 }
 
 function App() {
@@ -51,42 +56,25 @@ function App() {
   const [reviewing, setReviewing] = useState(false);
   const [reviewError, setReviewError] = useState("");
 
-  // First message in the chat: the project description. Calls POST /api/next-question.
-  async function handleDescribe(desc) {
+  // The single first-turn entry point, for whatever the user typed or pasted -
+  // a clean description or messy notes, it doesn't matter which. Always runs
+  // it through POST /api/extract-notes first, then feeds the (possibly
+  // seeded) result into the same POST /api/next-question call every
+  // subsequent turn uses - the interview itself doesn't know or care how the
+  // description was arrived at.
+  async function handleStart(rawInput) {
     setChatError("");
     setChatLoading(true);
     try {
-      const result = await nextQuestion(desc, []);
-      setFlow((f) => ({
-        ...f,
-        description: desc,
-        qaHistory: [],
-        currentQuestion: result.done ? null : result.question,
-        readyToGenerate: !!result.done,
-      }));
-    } catch (err) {
-      setChatError(err.message);
-    } finally {
-      setChatLoading(false);
-    }
-  }
-
-  // Alternative first turn: raw pasted notes instead of a typed description.
-  // Calls POST /api/extract-notes, then feeds the result into the exact same
-  // POST /api/next-question call handleDescribe uses - the interview itself
-  // doesn't know or care whether it started from a description or from notes.
-  async function handleSubmitNotes(rawNotes) {
-    setChatError("");
-    setChatLoading(true);
-    try {
-      const extraction = await extractFromNotes(rawNotes);
-      const seeded = seedDescriptionFromNotes(rawNotes, extraction.open_questions);
+      const extraction = await extractFromNotes(rawInput);
+      const seeded = seedDescriptionFromNotes(rawInput, extraction.open_questions);
       const result = await nextQuestion(seeded, []);
       setFlow((f) => ({
         ...f,
         description: seeded,
         qaHistory: [],
         currentQuestion: result.done ? null : result.question,
+        currentSuggestions: result.suggested_answers || [],
         readyToGenerate: !!result.done,
       }));
     } catch (err) {
@@ -104,12 +92,13 @@ function App() {
     setChatLoading(true);
     try {
       if (newHistory.length >= MAX_QUESTIONS) {
-        setFlow((f) => ({ ...f, currentQuestion: null, readyToGenerate: true }));
+        setFlow((f) => ({ ...f, currentQuestion: null, currentSuggestions: [], readyToGenerate: true }));
       } else {
         const result = await nextQuestion(flow.description, newHistory);
         setFlow((f) => ({
           ...f,
           currentQuestion: result.done ? null : result.question,
+          currentSuggestions: result.suggested_answers || [],
           readyToGenerate: !!result.done,
         }));
       }
@@ -128,7 +117,6 @@ function App() {
       const data = await generateRequirements(flow.description, flow.qaHistory);
       setFlow((f) => ({
         ...f,
-        stage: "document",
         data,
         review: null,
         refineHistory: [],
@@ -189,10 +177,6 @@ function App() {
     }
   }
 
-  function handleBackToChat() {
-    setFlow((f) => ({ ...f, stage: "chat", readyToGenerate: true }));
-  }
-
   function handleStartOver() {
     setFlow(emptyFlow);
     setChatError("");
@@ -201,34 +185,26 @@ function App() {
   }
 
   if (flow.stage === "welcome") {
-    return <WelcomeScreen onStart={() => setFlow((f) => ({ ...f, stage: "chat" }))} />;
+    return <WelcomeScreen onStart={() => setFlow((f) => ({ ...f, stage: "workspace" }))} />;
   }
 
-  if (flow.stage === "chat") {
+  if (flow.stage === "workspace") {
     return (
-      <ChatStage
+      <WorkspaceScreen
         description={flow.description}
         qaHistory={flow.qaHistory}
         currentQuestion={flow.currentQuestion}
+        currentSuggestions={flow.currentSuggestions}
         readyToGenerate={flow.readyToGenerate}
-        onDescribe={handleDescribe}
-        onSubmitNotes={handleSubmitNotes}
+        onStart={handleStart}
         onAnswer={handleAnswer}
         onGenerate={handleGenerate}
         loading={chatLoading}
         error={chatError}
-      />
-    );
-  }
-
-  if (flow.stage === "document" && flow.data) {
-    return (
-      <DocumentStage
         data={flow.data}
         onDownload={handleDownload}
         downloading={downloading}
         onStartOver={handleStartOver}
-        onBackToChat={handleBackToChat}
         onRefine={handleRefine}
         refineHistory={flow.refineHistory}
         refining={refining}

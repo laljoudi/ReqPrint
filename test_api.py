@@ -1,12 +1,11 @@
 import os
 import json
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
+from groq import Groq
 from prompts import NEXT_QUESTION_PROMPT
 
 load_dotenv()
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 description = input("Describe your project: ")   # تكتب الوصف
 qa_history = []                                   # دفتر المحادثة (يبدأ فاضي)
@@ -18,17 +17,16 @@ while True:
         conversation += f"Q: {qa['q']}\nA: {qa['a']}\n"
     conversation += "\nNow ask the next question, or return done if you have enough."
 
-    # نستدعي Gemini
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=conversation,
-        config=types.GenerateContentConfig(
-            system_instruction=NEXT_QUESTION_PROMPT,
-            response_mime_type="application/json",
-        ),
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": NEXT_QUESTION_PROMPT},
+            {"role": "user", "content": conversation},
+        ],
     )
 
-    result = json.loads(response.text)   # نحوّل الرد لبيانات
+    result = json.loads(response.choices[0].message.content)   # نحوّل الرد لبيانات
 
     if result["done"]:                   # إذا قال done، نوقف
         print("\n✅ Enough information gathered!")

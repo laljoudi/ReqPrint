@@ -1,6 +1,6 @@
-// The numbered sections shown stacked on the Document stage (see
-// DocumentStage.jsx). Each section owns its own numbered heading + anchor id
-// so the TOC sidebar can link straight to it.
+// The numbered sections shown stacked in the results side of WorkspaceScreen.
+// Each section owns its own numbered heading + anchor id (unused now that the
+// TOC sidebar is gone, but harmless to keep for in-page anchor links).
 
 function SectionHeading({ num, title }) {
   return (
@@ -34,7 +34,7 @@ function RequirementList({ items, prefix, chipColor }) {
       {items.map((text, i) => (
         <div
           key={i}
-          className={`flex gap-3.5 py-3.5 items-start ${i > 0 ? "border-t border-[#F0EAF5]" : ""}`}
+          className={`flex gap-3.5 py-3.5 items-start ${i > 0 ? "border-t border-border" : ""}`}
         >
           <span
             className="flex-none font-mono text-[11.5px] font-bold rounded px-2 py-0.5 mt-px"
@@ -42,7 +42,7 @@ function RequirementList({ items, prefix, chipColor }) {
           >
             {`${prefix}-${i + 1}`}
           </span>
-          <span className="flex-1 text-sm leading-relaxed text-[#4A4A4A]">{text}</span>
+          <span className="flex-1 text-sm leading-relaxed text-ink">{text}</span>
         </div>
       ))}
     </div>
@@ -53,15 +53,15 @@ export function RequirementsSection({ requirements }) {
   return (
     <section id="sec-1" className="mb-12">
       <SectionHeading num="1" title="Requirements" />
-      <h3 className="font-display font-bold text-[15px] text-[#3A3A3A] mb-1 mt-6">
+      <h3 className="font-display font-bold text-[15px] text-ink mb-1 mt-6">
         1.1 &nbsp;Functional
       </h3>
-      <RequirementList items={requirements.functional} prefix="FR" chipColor="#BA55D3" />
+      <RequirementList items={requirements.functional} prefix="FR" chipColor="#641F2A" />
 
-      <h3 className="font-display font-bold text-[15px] text-[#3A3A3A] mb-1 mt-7">
+      <h3 className="font-display font-bold text-[15px] text-ink mb-1 mt-7">
         1.2 &nbsp;Non-functional
       </h3>
-      <RequirementList items={requirements.non_functional} prefix="NF" chipColor="#8E44AD" />
+      <RequirementList items={requirements.non_functional} prefix="NF" chipColor="#48151E" />
     </section>
   );
 }
@@ -82,7 +82,7 @@ export function UserStoriesSection({ userStories }) {
             <span className="font-mono text-xs font-bold text-accent bg-accent/8 px-2.5 py-0.5 rounded-md w-fit">
               {s.id}
             </span>
-            <p className="m-0 text-sm leading-relaxed text-[#3A3A3A]">{s.story}</p>
+            <p className="m-0 text-sm leading-relaxed text-ink">{s.story}</p>
             <span className="text-[11px] font-bold tracking-wide uppercase text-hint">
               {s.role}
             </span>
@@ -93,19 +93,23 @@ export function UserStoriesSection({ userStories }) {
   );
 }
 
+function EmptyNotice({ children }) {
+  return (
+    <div className="rounded-[14px] bg-surface border border-border text-sm text-muted px-4 py-3">
+      {children}
+    </div>
+  );
+}
+
 function DocTable({ columns, rows }) {
   if (!rows.length) {
-    return (
-      <div className="rounded-[14px] bg-blue-50 text-sm text-blue-800 px-4 py-3">
-        No data available.
-      </div>
-    );
+    return <EmptyNotice>No data available.</EmptyNotice>;
   }
   return (
     <div className="bg-white border border-border rounded-[14px] overflow-hidden overflow-x-auto">
       <table className="w-full text-left border-collapse min-w-[600px]">
         <thead>
-          <tr className="bg-[#F5F1F7]">
+          <tr className="bg-surface">
             {columns.map((c) => (
               <th
                 key={c.key}
@@ -118,9 +122,9 @@ function DocTable({ columns, rows }) {
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-t border-[#EDEAF0] align-top">
+            <tr key={i} className="border-t border-border align-top">
               {columns.map((c) => (
-                <td key={c.key} className="px-4 py-3.5 text-[13px] leading-relaxed text-[#4A4A4A]">
+                <td key={c.key} className="px-4 py-3.5 text-[13px] leading-relaxed text-ink">
                   {row[c.key] ?? ""}
                 </td>
               ))}
@@ -155,17 +159,17 @@ export function UseCasesSection({ useCases }) {
         <div className="flex flex-col gap-4">
           {useCases.map((uc, i) => (
             <div key={i} className="bg-white border border-border rounded-[14px] overflow-hidden">
-              <div className="px-4 py-2.5 bg-[#F5F1F7]">
+              <div className="px-4 py-2.5 bg-surface">
                 <span className="font-mono text-xs font-bold text-accent">{uc.use_case_id}</span>
               </div>
               <table className="w-full border-collapse">
                 <tbody>
                   {UC_FIELDS.map((f) => (
-                    <tr key={f.key} className="border-t border-[#EDEAF0] align-top">
+                    <tr key={f.key} className="border-t border-border align-top">
                       <td className="px-4 py-3 text-[11px] font-bold tracking-wide uppercase text-muted w-[140px] whitespace-nowrap">
                         {f.label}
                       </td>
-                      <td className="px-4 py-3 text-[13px] leading-relaxed text-[#4A4A4A]">
+                      <td className="px-4 py-3 text-[13px] leading-relaxed text-ink">
                         {uc[f.key] ?? ""}
                       </td>
                     </tr>
@@ -176,9 +180,7 @@ export function UseCasesSection({ useCases }) {
           ))}
         </div>
       ) : (
-        <div className="rounded-[14px] bg-blue-50 text-sm text-blue-800 px-4 py-3">
-          No data available.
-        </div>
+        <EmptyNotice>No data available.</EmptyNotice>
       )}
     </section>
   );
@@ -195,8 +197,8 @@ export function AssumptionsSection({ assumptions }) {
         <div
           className="rounded-[14px] px-5 py-1.5"
           style={{
-            background: "linear-gradient(180deg, rgba(186,85,211,0.05), rgba(186,85,211,0.015))",
-            border: "1px solid rgba(186,85,211,0.20)",
+            background: "linear-gradient(180deg, rgba(100,31,42,0.05), rgba(100,31,42,0.015))",
+            border: "1px solid rgba(100,31,42,0.20)",
           }}
         >
           {assumptions.map((text, i) => (
@@ -207,23 +209,24 @@ export function AssumptionsSection({ assumptions }) {
               <span className="flex-none font-mono text-[11.5px] font-bold text-accent pt-px">
                 {`A-${String(i + 1).padStart(2, "0")}`}
               </span>
-              <span className="text-sm leading-relaxed text-[#4A4A4A]">{text}</span>
+              <span className="text-sm leading-relaxed text-ink">{text}</span>
             </div>
           ))}
         </div>
       ) : (
-        <div className="rounded-[14px] bg-blue-50 text-sm text-blue-800 px-4 py-3">
-          No additional assumptions were made.
-        </div>
+        <EmptyNotice>No additional assumptions were made.</EmptyNotice>
       )}
     </section>
   );
 }
 
+// Three severity levels, all mapped onto the warm palette instead of the
+// conventional red/amber/blue - darker burgundy reads as more severe, and
+// Dusty Rose gets its one deliberate, sparing use here for "low".
 const SEVERITY_STYLES = {
-  high: "bg-red-50 text-red-700 border-red-200",
-  medium: "bg-amber-50 text-amber-700 border-amber-200",
-  low: "bg-blue-50 text-blue-700 border-blue-200",
+  high: "bg-accent-dark/10 text-accent-dark border-accent-dark/30",
+  medium: "bg-accent/10 text-accent border-accent/30",
+  low: "bg-rose/15 text-ink border-rose/40",
 };
 
 export function ReviewSection({ issues, loading, error }) {
@@ -235,19 +238,19 @@ export function ReviewSection({ issues, loading, error }) {
       </p>
 
       {error && (
-        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-3.5 py-2.5">
+        <div className="mb-4 rounded-lg bg-accent-dark/8 border border-accent-dark/25 text-accent-dark text-sm px-3.5 py-2.5">
           {error}
         </div>
       )}
 
       {loading && !issues.length && (
-        <div className="bg-white border border-border rounded-[14px] px-5 py-4 text-sm text-[#4A4A4A]">
+        <div className="bg-white border border-border rounded-[14px] px-5 py-4 text-sm text-ink">
           Reviewing requirements...
         </div>
       )}
 
       {!loading && !error && !issues.length && (
-        <div className="bg-white border border-border rounded-[14px] px-5 py-4 text-sm text-[#4A4A4A]">
+        <div className="bg-white border border-border rounded-[14px] px-5 py-4 text-sm text-ink">
           Run a review to check this SRS for ambiguity, gaps, risks, and testability issues.
         </div>
       )}
@@ -259,7 +262,7 @@ export function ReviewSection({ issues, loading, error }) {
             const severityClass = SEVERITY_STYLES[severity] || SEVERITY_STYLES.medium;
             return (
               <div key={i} className="bg-white border border-border rounded-[14px] overflow-hidden">
-                <div className="px-4 py-3 bg-[#F5F1F7] flex flex-wrap items-center gap-2.5">
+                <div className="px-4 py-3 bg-surface flex flex-wrap items-center gap-2.5">
                   <span className="font-display font-bold text-[13px] text-ink">
                     {item.role}
                   </span>
@@ -270,7 +273,7 @@ export function ReviewSection({ issues, loading, error }) {
                   </span>
                 </div>
                 <div className="px-4 py-4">
-                  <h3 className="m-0 mb-3 font-display font-bold text-[15px] text-[#3A3A3A]">
+                  <h3 className="m-0 mb-3 font-display font-bold text-[15px] text-ink">
                     {item.issue}
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -278,7 +281,7 @@ export function ReviewSection({ issues, loading, error }) {
                       <div className="text-[11px] font-bold tracking-wide uppercase text-hint mb-1">
                         Why it matters
                       </div>
-                      <p className="m-0 text-[13px] leading-relaxed text-[#4A4A4A]">
+                      <p className="m-0 text-[13px] leading-relaxed text-ink">
                         {item.why_it_matters}
                       </p>
                     </div>
@@ -286,7 +289,7 @@ export function ReviewSection({ issues, loading, error }) {
                       <div className="text-[11px] font-bold tracking-wide uppercase text-hint mb-1">
                         Suggested fix
                       </div>
-                      <p className="m-0 text-[13px] leading-relaxed text-[#4A4A4A]">
+                      <p className="m-0 text-[13px] leading-relaxed text-ink">
                         {item.suggested_fix}
                       </p>
                     </div>
