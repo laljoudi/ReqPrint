@@ -16,54 +16,95 @@ import {
   ReviewSection,
 } from "./DocumentSections";
 
-const INTRO =
-  "Write a plain description, or paste whatever notes you already have - ReqPrint will figure out what to do with it.";
 const INTRO_REFINE =
   "This document was generated from your conversation. Ask me here to add, remove, or rephrase anything.";
 
 const SUGGESTIONS = ["Add security requirements", "Split stories by role", "Add offline support"];
 
-function ThinkingBubble() {
+const CATEGORIES = [
+  "Software Systems",
+  "AI Solutions",
+  "FinTech",
+  "HR Tech",
+  "Productivity Tools",
+  "Other",
+];
+
+// First-turn-only step, shown in the same input area before any text is
+// typed: pick a category so the interview can ask more relevant questions.
+// Rectangular (not pill-shaped, unlike the suggestion chips below) so the two
+// don't look interchangeable.
+function CategoryChips({ onSelect }) {
   return (
-    <div className="flex gap-3 items-start">
-      <div className="flex-none w-[30px] h-[30px] rounded-[9px] bg-accent text-white flex items-center justify-center font-display font-bold text-[11.5px]">
-        AI
-      </div>
-      <div className="bg-bubble rounded-[14px_14px_14px_4px] px-4 py-3.5 flex gap-1.5 items-center">
-        {[0, 0.15, 0.3].map((delay) => (
-          <span
-            key={delay}
-            className="w-1.5 h-1.5 rounded-full bg-hint"
-            style={{ animation: "rp-dot 1.1s infinite ease-in-out", animationDelay: `${delay}s` }}
-          />
+    <div>
+      <p className="text-[12.5px] text-muted mb-2.5">What kind of project is this?</p>
+      <div className="flex flex-wrap gap-2">
+        {CATEGORIES.map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onSelect(c)}
+            className="border border-border bg-surface text-ink text-[13px] font-medium px-3.5 py-2 rounded-lg hover:bg-accent/8 hover:border-accent/30 transition-colors"
+          >
+            {c}
+          </button>
         ))}
       </div>
     </div>
   );
 }
 
-function MessageBubble({ role, text }) {
-  const mine = role === "user";
+// Replaces the chips once one is picked - confirms the choice and offers a
+// way back to the chips, without a page transition or layout jump (same
+// input area, same spot).
+function CategoryPill({ category, onClear }) {
   return (
-    <div className={`flex gap-3 items-start ${mine ? "flex-row-reverse" : ""}`}>
-      <div
-        className={`flex-none w-[30px] h-[30px] rounded-[9px] flex items-center justify-center font-display font-bold text-[11.5px] ${
-          mine ? "bg-ink text-white" : "bg-accent text-white"
-        }`}
-      >
-        {mine ? "YOU" : "AI"}
-      </div>
-      <div
-        className={`max-w-[78%] px-4 py-3.5 text-[14.5px] leading-[1.55] ${
-          mine
-            ? "bg-accent text-white rounded-[14px_14px_4px_14px]"
-            : "bg-bubble text-ink rounded-[14px_14px_14px_4px]"
-        }`}
-      >
-        {text}
-      </div>
+    <div className="mb-2.5">
+      <span className="inline-flex items-center gap-1.5 border border-border bg-surface text-ink text-[12.5px] font-medium px-2.5 py-1 rounded-lg">
+        {category}
+        <button
+          type="button"
+          onClick={onClear}
+          className="text-hint hover:text-ink transition-colors"
+          aria-label="Change category"
+        >
+          ✕
+        </button>
+      </span>
     </div>
   );
+}
+
+function Thinking() {
+  return (
+    <div className="flex gap-1.5 items-center py-1">
+      {[0, 0.15, 0.3].map((delay) => (
+        <span
+          key={delay}
+          className="w-1.5 h-1.5 rounded-full bg-hint"
+          style={{ animation: "rp-dot 1.1s infinite ease-in-out", animationDelay: `${delay}s` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// No avatars, no "AI"/"YOU" labels - speakers are told apart by alignment and
+// the subtle background on the user's own messages, not by badges. ReqPrint's
+// own messages are plain text on the page, not a card; only the user's
+// messages get the soft butter-tinted bubble.
+function Message({ role, text }) {
+  const mine = role === "user";
+  if (mine) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[80%] bg-butter px-4 py-3 rounded-2xl text-[14.5px] leading-[1.6] text-ink">
+          {text}
+        </div>
+      </div>
+    );
+  }
+  return <p className="max-w-[92%] text-[14.5px] leading-[1.7] text-ink m-0">{text}</p>;
 }
 
 function Placeholder() {
@@ -73,6 +114,70 @@ function Placeholder() {
         Your requirements will appear here once there's enough to work with.
       </p>
     </div>
+  );
+}
+
+// Shared CSS-only hover tooltip (no tooltip primitive exists elsewhere in the
+// codebase, so this is the minimal one, reused by every button that needs
+// one). Wrap a button in <div className="relative group"> and place this as
+// its sibling; `width` sizes the panel for short one-liners vs longer content.
+function Tooltip({ children, width = "w-64" }) {
+  return (
+    <div
+      className={`pointer-events-none absolute left-1/2 -translate-x-1/2 top-full mt-2 ${width} rounded-lg border border-border bg-panel px-3.5 py-3 text-left opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity z-10`}
+    >
+      {children}
+    </div>
+  );
+}
+
+const COMPLIANCE_STANDARDS = [
+  "Saudi PDPL (data protection & privacy)",
+  "ZATCA (e-invoicing compliance)",
+  "INVEST (user story quality)",
+  "EARS (requirement clarity standards)",
+];
+
+// Placeholder for a future feature - no backend call, just a button, a hover
+// tooltip, and a static "coming soon" notice on click.
+function ComplianceCheckButton({ onClick }) {
+  return (
+    <div className="relative group">
+      <button
+        onClick={onClick}
+        className="h-9 px-3.5 rounded-lg border border-border bg-panel text-muted font-semibold text-xs hover:bg-surface transition-colors"
+      >
+        Compliance Check
+      </button>
+      <Tooltip>
+        <p className="text-[12px] font-semibold text-ink mb-1.5">Checks your requirements against:</p>
+        <ul className="text-[11.5px] text-muted leading-relaxed list-disc list-inside space-y-0.5 m-0 p-0">
+          {COMPLIANCE_STANDARDS.map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+        </ul>
+      </Tooltip>
+    </div>
+  );
+}
+
+function DownloadIcon(props) {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.85"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+      <path d="M7 10l5 5 5-5"></path>
+      <path d="M12 15V3"></path>
+    </svg>
   );
 }
 
@@ -101,11 +206,13 @@ export default function WorkspaceScreen({
   reviewError,
 }) {
   const [input, setInput] = useState("");
+  const [category, setCategory] = useState(null);
+  const [showComplianceNotice, setShowComplianceNotice] = useState(false);
 
   const isFirstTurn = !description;
   const inRefineMode = !!data;
 
-  const messages = [{ role: "assistant", text: INTRO }];
+  const messages = [];
   if (description) messages.push({ role: "user", text: description });
   for (const qa of qaHistory) {
     messages.push({ role: "assistant", text: qa.q });
@@ -121,7 +228,7 @@ export default function WorkspaceScreen({
 
   function submitAnswer(text) {
     if (inRefineMode) onRefine(text);
-    else if (!description) onStart(text);
+    else if (!description) onStart(text, category);
     else onAnswer(text);
   }
 
@@ -147,7 +254,7 @@ export default function WorkspaceScreen({
   return (
     <div className="lg:h-screen flex flex-col lg:flex-row">
       {/* Left: persistent conversation panel - interview, then refine. */}
-      <aside className="lg:w-[400px] lg:flex-none flex flex-col border-b lg:border-b-0 lg:border-r border-border bg-white lg:h-screen">
+      <aside className="lg:w-[400px] lg:flex-none flex flex-col border-b lg:border-b-0 lg:border-r border-border bg-panel lg:h-screen">
         <header className="h-14 flex-none flex items-center px-5 border-b border-border">
           <div className="font-display font-extrabold text-base tracking-tight">ReqPrint</div>
           <div className="w-px h-5 bg-border mx-3" />
@@ -156,9 +263,9 @@ export default function WorkspaceScreen({
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto max-h-[55vh] lg:max-h-none px-5 py-6 flex flex-col gap-4">
+        <div className="flex-1 overflow-y-auto max-h-[55vh] lg:max-h-none px-5 py-7 flex flex-col gap-5">
           {messages.map((m, i) => (
-            <MessageBubble key={i} role={m.role} text={m.text} />
+            <Message key={i} role={m.role} text={m.text} />
           ))}
 
           {inRefineMode && (
@@ -166,14 +273,14 @@ export default function WorkspaceScreen({
               <div className="text-center text-[11px] font-bold uppercase tracking-wide text-hint py-1">
                 Requirements generated
               </div>
-              <MessageBubble role="assistant" text={INTRO_REFINE} />
+              <Message role="assistant" text={INTRO_REFINE} />
               {refineHistory.map((h, i) => (
-                <MessageBubble key={`refine-${i}`} role="user" text={h} />
+                <Message key={`refine-${i}`} role="user" text={h} />
               ))}
             </>
           )}
 
-          {isBusy && <ThinkingBubble />}
+          {isBusy && <Thinking />}
         </div>
 
         <div className="flex-none border-t border-border px-5 pt-3.5 pb-4">
@@ -191,8 +298,14 @@ export default function WorkspaceScreen({
             >
               {loading ? "Generating document..." : "Generate requirements document"}
             </button>
+          ) : isFirstTurn && !category ? (
+            <CategoryChips onSelect={setCategory} />
           ) : (
             <>
+              {isFirstTurn && category && (
+                <CategoryPill category={category} onClear={() => setCategory(null)} />
+              )}
+
               {(showQuestionSuggestions || inRefineMode) && (
                 <div className="flex flex-wrap gap-1.5 mb-3">
                   {(showQuestionSuggestions ? currentSuggestions : SUGGESTIONS).map((label) => (
@@ -211,7 +324,7 @@ export default function WorkspaceScreen({
               {(showAnswerInput || inRefineMode) && (
                 <form
                   onSubmit={handleSubmit}
-                  className="flex items-end gap-2.5 border border-border rounded-[14px] px-4 py-2.5 bg-white focus-within:border-accent focus-within:shadow-[0_0_0_4px_rgba(100,31,42,0.12)] transition"
+                  className="flex items-end gap-2.5 border border-border rounded-[14px] px-4 py-2.5 bg-panel focus-within:border-accent focus-within:shadow-[0_0_0_4px_rgba(122,31,43,0.12)] transition"
                 >
                   <textarea
                     rows={isFirstTurn ? 4 : 1}
@@ -289,7 +402,7 @@ export default function WorkspaceScreen({
                 <button
                   onClick={onReview}
                   disabled={reviewing}
-                  className="h-9 px-3.5 rounded-lg border border-border bg-white text-muted font-semibold text-xs hover:bg-surface disabled:opacity-60 transition-colors"
+                  className="h-9 px-3.5 rounded-lg border border-border bg-panel text-muted font-semibold text-xs hover:bg-surface disabled:opacity-60 transition-colors"
                 >
                   {reviewing
                     ? "Reviewing..."
@@ -297,21 +410,35 @@ export default function WorkspaceScreen({
                       ? "Review Again"
                       : "Review Requirements"}
                 </button>
+                <ComplianceCheckButton onClick={() => setShowComplianceNotice(true)} />
                 <button
                   onClick={onStartOver}
-                  className="h-9 px-3.5 rounded-lg border border-border bg-white text-muted font-semibold text-xs hover:bg-surface transition-colors"
+                  className="h-9 px-3.5 rounded-lg border border-border bg-panel text-muted font-semibold text-xs hover:bg-surface transition-colors"
                 >
                   Start over
                 </button>
-                <button
-                  onClick={onDownload}
-                  disabled={downloading}
-                  className="h-9 px-3.5 rounded-lg bg-accent hover:brightness-105 text-white font-semibold text-xs disabled:opacity-60 transition"
-                >
-                  {downloading ? "Preparing..." : "Word"}
-                </button>
+                <div className="relative group">
+                  <button
+                    onClick={onDownload}
+                    disabled={downloading}
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-accent hover:brightness-105 text-white font-semibold text-xs disabled:opacity-60 transition"
+                  >
+                    <DownloadIcon />
+                    {downloading && "Preparing..."}
+                  </button>
+                  <Tooltip width="w-48">
+                    <p className="text-[12px] text-ink m-0">Download as Word document</p>
+                  </Tooltip>
+                </div>
               </div>
             </div>
+
+            {showComplianceNotice && (
+              <div className="rounded-[14px] bg-surface border border-border text-sm text-muted px-4 py-3 mb-8">
+                This feature is currently in development. We're building automated checks
+                against these standards — check back soon.
+              </div>
+            )}
 
             <RequirementsSection requirements={data.requirements} />
             <UserStoriesSection userStories={data.user_stories} />

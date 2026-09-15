@@ -1,59 +1,77 @@
-// Landing page section: the 4-step workflow, told visually (short labels,
-// no paragraphs) instead of describing it in prose.
-import { useScrollReveal } from "../lib/useScrollReveal";
-
+// Panel 2 of the homepage: the 4-step working flow, plus a 5th step that
+// isn't built yet - visually separated and dimmed so it never reads as part
+// of the working product.
 const STEPS = [
-  { n: "1", title: "Project Idea", caption: "Describe it in plain language" },
+  { n: "01", title: "Start with an idea. Or a mess of notes. Either works" },
   {
-    n: "2",
-    title: "Clarifying Questions",
-    caption: "ReqPrint asks adaptive questions, each building on your last answer, until it has a complete picture.",
+    n: "02",
+    title: "Answer what it needs to know",
+    desc: "Shaped by your category. Take a suggestion, or write your own.",
   },
-  { n: "3", title: "Requirements Generation", caption: "Structured, numbered, complete" },
-  { n: "4", title: "Export Word Document", caption: "Download and share instantly" },
+  {
+    n: "03",
+    title: "Watch the document build as you go",
+    desc: "Five sections take shape beside the conversation, not after it.",
+  },
+  {
+    n: "04",
+    title: "Review, refine, export",
+    desc: "Three AI perspectives catch what's missing before you download.",
+  },
 ];
 
-function Step({ step, i, visible }) {
+// A hairline with a label sitting on top of it, matching-background masking
+// the line where the label sits.
+function HairlineLabel({ children, bgClass }) {
   return (
-    <div
-      className="flex-1 flex flex-col items-center text-center px-2 transition-all duration-700 ease-out"
-      style={{
-        opacity: visible ? 1 : 0,
-        transform: visible ? "translateY(0)" : "translateY(16px)",
-        transitionDelay: `${i * 110}ms`,
-      }}
-    >
-      <div className="w-11 h-11 rounded-full bg-accent/10 text-accent font-mono font-bold text-[15px] flex items-center justify-center mb-4">
-        {step.n}
-      </div>
-      <div className="font-display font-bold text-[15px] text-ink leading-snug">{step.title}</div>
-      <div className="text-[13px] text-hint mt-1.5">{step.caption}</div>
+    <div className={`relative mb-10 h-px bg-border`}>
+      <span
+        className={`absolute left-0 top-1/2 -translate-y-1/2 ${bgClass} pr-3 text-[12.5px] font-semibold text-accent leading-none`}
+      >
+        {children}
+      </span>
     </div>
   );
 }
 
 export default function HowItWorksSection() {
-  const { ref, visible } = useScrollReveal();
-
   return (
-    <section ref={ref} className="max-w-5xl mx-auto px-6 py-24 md:py-28">
-      <div className="text-center mb-16">
-        <div className="text-[11px] font-bold tracking-[0.09em] uppercase text-accent mb-3">
-          How It Works
-        </div>
-        <h2 className="font-display font-extrabold text-3xl md:text-4xl tracking-tight text-ink">
-          From idea to requirements document
-        </h2>
+    <section className="bg-panel-2 rounded-[22px] min-[561px]:rounded-[30px] p-[46px_24px] min-[561px]:p-[74px_60px]">
+      <h2
+        className="font-display font-bold text-ink mb-10"
+        style={{ fontSize: "clamp(25px, 3vw, 33px)", lineHeight: 1.2 }}
+      >
+        How it works
+      </h2>
+
+      <HairlineLabel bgClass="bg-panel-2">Process</HairlineLabel>
+
+      <div className="grid grid-cols-1 min-[561px]:grid-cols-2 min-[901px]:grid-cols-4 gap-9">
+        {STEPS.map((step) => (
+          <div key={step.n} className="text-left">
+            <div className="font-mono text-[13px] text-accent tabular-nums mb-2">{step.n}</div>
+            <div className="font-display font-semibold text-base text-ink mb-1">{step.title}</div>
+            {step.desc && (
+              <p className="text-[14.5px] leading-[1.55] text-muted m-0">{step.desc}</p>
+            )}
+          </div>
+        ))}
       </div>
 
-      <div className="relative flex flex-col md:flex-row items-stretch gap-10 md:gap-0">
-        <div
-          className="hidden md:block absolute left-[10%] right-[10%] top-[22px] h-px bg-border transition-transform duration-700 ease-out"
-          style={{ transform: visible ? "scaleX(1)" : "scaleX(0)", transformOrigin: "left" }}
-        />
-        {STEPS.map((step, i) => (
-          <Step key={step.n} step={step} i={i} visible={visible} />
-        ))}
+      <div className="mt-10 pt-[26px] border-t border-border opacity-[.72]">
+        <div className="font-mono text-[13px] text-accent tabular-nums mb-2">05</div>
+        <div className="flex items-center flex-wrap gap-2.5 mb-1">
+          <span className="font-display font-semibold text-base text-ink">
+            Check against real standards
+          </span>
+          <span className="text-[11.5px] font-semibold text-muted border border-border rounded-full px-2.5 py-[3px] leading-none">
+            IN DEVELOPMENT
+          </span>
+        </div>
+        <p className="text-[14.5px] leading-[1.55] text-muted m-0">
+          PDPL, ZATCA, INVEST, and EARS matched against your requirements automatically. Not
+          built yet.
+        </p>
       </div>
     </section>
   );

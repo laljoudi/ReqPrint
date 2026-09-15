@@ -45,6 +45,15 @@ function seedDescriptionFromNotes(rawInput, openQuestions) {
   return `${rawInput}\n\nOpen questions identified from this input - please prioritize asking about these:\n${list}`;
 }
 
+// Folds the category the user picked into the input text itself, rather than
+// threading it as a separate parameter through /api/extract-notes and every
+// /api/next-question call - this way it's just part of `description`, which
+// is already reused for the whole conversation (every question) and the
+// final generation, with zero backend/schema changes needed.
+function prependCategory(rawInput, category) {
+  return `Project category: ${category}\n\n${rawInput}`;
+}
+
 function App() {
   const [flow, setFlow] = useState(emptyFlow);
 
@@ -62,12 +71,13 @@ function App() {
   // seeded) result into the same POST /api/next-question call every
   // subsequent turn uses - the interview itself doesn't know or care how the
   // description was arrived at.
-  async function handleStart(rawInput) {
+  async function handleStart(rawInput, category) {
     setChatError("");
     setChatLoading(true);
     try {
-      const extraction = await extractFromNotes(rawInput);
-      const seeded = seedDescriptionFromNotes(rawInput, extraction.open_questions);
+      const categorizedInput = prependCategory(rawInput, category);
+      const extraction = await extractFromNotes(categorizedInput);
+      const seeded = seedDescriptionFromNotes(categorizedInput, extraction.open_questions);
       const result = await nextQuestion(seeded, []);
       setFlow((f) => ({
         ...f,

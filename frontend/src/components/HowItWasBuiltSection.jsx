@@ -1,127 +1,155 @@
-// Landing page section: a single quiet vertical timeline consolidating the
-// engineering story. Each technology is mentioned once, with its logo inline
-// beside the name. Logos are small and monochrome (currentColor -> text-muted)
-// rather than the brands' original colors, to stay consistent with the quiet
-// palette. No gradients, no large icons, no animation.
-const logoBase = { width: 16, height: 16, viewBox: "0 0 24 24", "aria-hidden": true };
-
-function ReactLogo(props) {
+// Panel 3 of the homepage: the stack, as two horizontal flow rows (request
+// path, deploy path) rather than the prose timeline this used to be.
+//
+// Logos: React, FastAPI, Docker, Pydantic, and GitHub Actions are Simple
+// Icons marks (CC0 1.0 - public domain, no attribution required), recolored
+// via currentColor. AWS and Groq are deliberately text-only, not empty and
+// not a recolored logo: AWS's trademark guidelines prohibit altering their
+// mark's color, and Groq has no CC0/first-party asset to source from - so a
+// muted-brown "AW"/"Gr" initial in the same slot keeps the row's rhythm
+// without modifying a mark that isn't ours to modify.
+function ReactLogo() {
   return (
-    <svg {...logoBase} fill="none" stroke="currentColor" strokeWidth="1.5" {...props}>
-      <circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none" />
-      <ellipse cx="12" cy="12" rx="10" ry="4" />
-      <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)" />
-      <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)" />
+    <svg viewBox="0 0 24 24" width="18" height="18" role="img">
+      <title>React</title>
+      <path
+        fill="currentColor"
+        d="M14.23 12.004a2.236 2.236 0 0 1-2.235 2.236 2.236 2.236 0 0 1-2.236-2.236 2.236 2.236 0 0 1 2.235-2.236 2.236 2.236 0 0 1 2.236 2.236zm2.648-10.69c-1.346 0-3.107.96-4.888 2.622-1.78-1.653-3.542-2.602-4.887-2.602-.41 0-.783.093-1.106.278-1.375.793-1.683 3.264-.973 6.365C1.98 8.917 0 10.42 0 12.004c0 1.59 1.99 3.097 5.043 4.03-.704 3.113-.39 5.588.988 6.38.32.187.69.275 1.102.275 1.345 0 3.107-.96 4.888-2.624 1.78 1.654 3.542 2.603 4.887 2.603.41 0 .783-.09 1.106-.275 1.374-.792 1.683-3.263.973-6.365C22.02 15.096 24 13.59 24 12.004c0-1.59-1.99-3.097-5.043-4.032.704-3.11.39-5.587-.988-6.38-.318-.184-.688-.277-1.092-.278zm-.005 1.09v.006c.225 0 .406.044.558.127.666.382.955 1.835.73 3.704-.054.46-.142.945-.25 1.44-.96-.236-2.006-.417-3.107-.534-.66-.905-1.345-1.727-2.035-2.447 1.592-1.48 3.087-2.292 4.105-2.295zm-9.77.02c1.012 0 2.514.808 4.11 2.28-.686.72-1.37 1.537-2.02 2.442-1.107.117-2.154.298-3.113.538-.112-.49-.195-.964-.254-1.42-.23-1.868.054-3.32.714-3.707.19-.09.4-.127.563-.132zm4.882 3.05c.455.468.91.992 1.36 1.564-.44-.02-.89-.034-1.345-.034-.46 0-.915.01-1.36.034.44-.572.895-1.096 1.345-1.565zM12 8.1c.74 0 1.477.034 2.202.093.406.582.802 1.203 1.183 1.86.372.64.71 1.29 1.018 1.946-.308.655-.646 1.31-1.013 1.95-.38.66-.773 1.288-1.18 1.87-.728.063-1.466.098-2.21.098-.74 0-1.477-.035-2.202-.093-.406-.582-.802-1.204-1.183-1.86-.372-.64-.71-1.29-1.018-1.946.303-.657.646-1.313 1.013-1.954.38-.66.773-1.286 1.18-1.868.728-.064 1.466-.098 2.21-.098zm-3.635.254c-.24.377-.48.763-.704 1.16-.225.39-.435.782-.635 1.174-.265-.656-.49-1.31-.676-1.947.64-.15 1.315-.283 2.015-.386zm7.26 0c.695.103 1.365.23 2.006.387-.18.632-.405 1.282-.66 1.933-.2-.39-.41-.783-.64-1.174-.225-.392-.465-.774-.705-1.146zm3.063.675c.484.15.944.317 1.375.498 1.732.74 2.852 1.708 2.852 2.476-.005.768-1.125 1.74-2.857 2.475-.42.18-.88.342-1.355.493-.28-.958-.646-1.956-1.1-2.98.45-1.017.81-2.01 1.085-2.964zm-13.395.004c.278.96.645 1.957 1.1 2.98-.45 1.017-.812 2.01-1.086 2.964-.484-.15-.944-.318-1.37-.5-1.732-.737-2.852-1.706-2.852-2.474 0-.768 1.12-1.742 2.852-2.476.42-.18.88-.342 1.356-.494zm11.678 4.28c.265.657.49 1.312.676 1.948-.64.157-1.316.29-2.016.39.24-.375.48-.762.705-1.158.225-.39.435-.788.636-1.18zm-9.945.02c.2.392.41.783.64 1.175.23.39.465.772.705 1.143-.695-.102-1.365-.23-2.006-.386.18-.63.406-1.282.66-1.933zM17.92 16.32c.112.493.2.968.254 1.423.23 1.868-.054 3.32-.714 3.708-.147.09-.338.128-.563.128-1.012 0-2.514-.807-4.11-2.28.686-.72 1.37-1.536 2.02-2.44 1.107-.118 2.154-.3 3.113-.54zm-11.83.01c.96.234 2.006.415 3.107.532.66.905 1.345 1.727 2.035 2.446-1.595 1.483-3.092 2.295-4.11 2.295-.22-.005-.406-.05-.553-.132-.666-.38-.955-1.834-.73-3.703.054-.46.142-.944.25-1.438zm4.56.64c.44.02.89.034 1.345.034.46 0 .915-.01 1.36-.034-.44.572-.895 1.095-1.345 1.565-.455-.47-.91-.993-1.36-1.565z"
+      />
     </svg>
   );
 }
 
-function FastAPILogo(props) {
+function FastAPILogo() {
   return (
-    <svg {...logoBase} fill="currentColor" {...props}>
-      <path d="M12 1.5 3.5 12h5.7l-2.1 10.5L20.5 11h-6.2L12 1.5Z" />
+    <svg viewBox="0 0 24 24" width="18" height="18" role="img">
+      <title>FastAPI</title>
+      <path
+        fill="currentColor"
+        d="M12 .0387C5.3729.0384.0003 5.3931 0 11.9988c-.001 6.6066 5.372 11.9628 12 11.9625 6.628.0003 12.001-5.3559 12-11.9625-.0003-6.6057-5.3729-11.9604-12-11.96m-.829 5.4153h7.55l-7.5805 5.3284h5.1828L5.279 18.5436q2.9466-6.5444 5.892-13.0896"
+      />
     </svg>
   );
 }
 
-function GeminiLogo(props) {
+function DockerLogo() {
   return (
-    <svg {...logoBase} fill="currentColor" {...props}>
-      <path d="M12 2c.6 4.4 1.6 6.9 3.4 8.6 1.8 1.8 4.3 2.8 8.6 3.4-4.4.6-6.9 1.6-8.6 3.4-1.8 1.8-2.8 4.3-3.4 8.6-.6-4.4-1.6-6.9-3.4-8.6C6.8 15.6 4.3 14.6 0 14c4.4-.6 6.9-1.6 8.6-3.4C10.4 8.9 11.4 6.4 12 2Z" />
+    <svg viewBox="0 0 24 24" width="18" height="18" role="img">
+      <title>Docker</title>
+      <path
+        fill="currentColor"
+        d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.184-.186h-2.12a.186.186 0 00-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"
+      />
     </svg>
   );
 }
 
-function DockerLogo(props) {
+function PydanticLogo() {
   return (
-    <svg {...logoBase} fill="currentColor" {...props}>
-      <path d="M22.5 10.2c-.5-.4-1.6-.5-2.4-.4-.1-.8-.6-1.5-1.3-2.1l-.4-.3-.3.4c-.5.6-.7 1.6-.6 2.3-.4.2-1 .5-1.9.5H2.2c-.2.9-.2 3.6 1.5 5.8 1.3 1.6 3.2 2.4 5.8 2.4 5.5 0 9.6-2.5 11.5-7.1 1 0 2-.1 2.6-.9.3-.4.5-.9.6-1.4l.1-.5-.7-.7Z" />
-      <rect x="4" y="6.3" width="2.6" height="2.4" />
-      <rect x="7.1" y="6.3" width="2.6" height="2.4" />
-      <rect x="10.2" y="6.3" width="2.6" height="2.4" />
-      <rect x="7.1" y="3.4" width="2.6" height="2.4" />
-      <rect x="10.2" y="3.4" width="2.6" height="2.4" />
+    <svg viewBox="0 0 24 24" width="18" height="18" role="img">
+      <title>Pydantic</title>
+      <path
+        fill="currentColor"
+        d="m23.826 17.316-4.23-5.866-6.847-9.496c-.348-.48-1.151-.48-1.497 0l-6.845 9.494-4.233 5.868a.925.925 0 0 0 .46 1.417l11.078 3.626h.002a.92.92 0 0 0 .572 0h.002l11.077-3.626c.28-.092.5-.31.59-.592a.916.916 0 0 0-.13-.825h.002ZM12.001 4.07l4.44 6.158-4.152-1.36c-.032-.01-.066-.008-.098-.016a.8.8 0 0 0-.096-.016c-.032-.004-.062-.016-.094-.016s-.062.012-.094.016a.74.74 0 0 0-.096.016c-.032.006-.066.006-.096.016L7.59 10.221l-.026.008 4.44-6.158h-.002Zm-6.273 8.7 4.834-1.583.516-.168v9.19L2.41 17.372l3.317-4.6Zm7.197 7.437V11.02l5.35 1.752 3.316 4.598-8.666 2.838Z"
+      />
     </svg>
   );
 }
 
-function AWSLogo(props) {
+function GitHubActionsLogo() {
   return (
-    <svg {...logoBase} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M3 15.5c4.5 3 13.5 3 18 0" />
-      <path d="M17 14.2c1.7.4 3 1 4 1.8" />
-      <path d="M18.7 13.6 21 16l-2.6.6" />
+    <svg viewBox="0 0 24 24" width="18" height="18" role="img">
+      <title>GitHub Actions</title>
+      <path
+        fill="currentColor"
+        d="M10.984 13.836a.5.5 0 0 1-.353-.146l-.745-.743a.5.5 0 1 1 .706-.708l.392.391 1.181-1.18a.5.5 0 0 1 .708.707l-1.535 1.533a.504.504 0 0 1-.354.146zm9.353-.147l1.534-1.532a.5.5 0 0 0-.707-.707l-1.181 1.18-.392-.391a.5.5 0 1 0-.706.708l.746.743a.497.497 0 0 0 .706-.001zM4.527 7.452l2.557-1.585A1 1 0 0 0 7.09 4.17L4.533 2.56A1 1 0 0 0 3 3.406v3.196a1.001 1.001 0 0 0 1.527.85zm2.03-2.436L4 6.602V3.406l2.557 1.61zM24 12.5c0 1.93-1.57 3.5-3.5 3.5a3.503 3.503 0 0 1-3.46-3h-2.08a3.503 3.503 0 0 1-3.46 3 3.502 3.502 0 0 1-3.46-3h-.558c-.972 0-1.85-.399-2.482-1.042V17c0 1.654 1.346 3 3 3h.04c.244-1.693 1.7-3 3.46-3 1.93 0 3.5 1.57 3.5 3.5S13.43 24 11.5 24a3.502 3.502 0 0 1-3.46-3H8c-2.206 0-4-1.794-4-4V9.899A5.008 5.008 0 0 1 0 5c0-2.757 2.243-5 5-5s5 2.243 5 5a5.005 5.005 0 0 1-4.952 4.998A2.482 2.482 0 0 0 7.482 12h.558c.244-1.693 1.7-3 3.46-3a3.502 3.502 0 0 1 3.46 3h2.08a3.503 3.503 0 0 1 3.46-3c1.93 0 3.5 1.57 3.5 3.5zm-15 8c0 1.378 1.122 2.5 2.5 2.5s2.5-1.122 2.5-2.5-1.122-2.5-2.5-2.5S9 19.122 9 20.5zM5 9c2.206 0 4-1.794 4-4S7.206 1 5 1 1 2.794 1 5s1.794 4 4 4zm9 3.5c0-1.378-1.122-2.5-2.5-2.5S9 11.122 9 12.5s1.122 2.5 2.5 2.5 2.5-1.122 2.5-2.5zm9 0c0-1.378-1.122-2.5-2.5-2.5S18 11.122 18 12.5s1.122 2.5 2.5 2.5 2.5-1.122 2.5-2.5zm-13 8a.5.5 0 1 0 1 0 .5.5 0 0 0-1 0zm2 0a.5.5 0 1 0 1 0 .5.5 0 0 0-1 0zm12 0c0 1.93-1.57 3.5-3.5 3.5a3.503 3.503 0 0 1-3.46-3.002c-.007.001-.013.005-.021.005l-.506.017h-.017a.5.5 0 0 1-.016-.999l.506-.017c.018-.002.035.006.052.007A3.503 3.503 0 0 1 20.5 17c1.93 0 3.5 1.57 3.5 3.5zm-1 0c0-1.378-1.122-2.5-2.5-2.5S18 19.122 18 20.5s1.122 2.5 2.5 2.5 2.5-1.122 2.5-2.5z"
+      />
     </svg>
   );
 }
 
-function GitHubLogo(props) {
-  return (
-    <svg {...logoBase} fill="currentColor" {...props}>
-      <path d="M12 .5C5.73.5.5 5.74.5 12.02c0 5.08 3.29 9.38 7.86 10.9.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.17.08 1.78 1.2 1.78 1.2 1.03 1.78 2.71 1.26 3.37.97.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.25.45-2.28 1.19-3.09-.12-.3-.52-1.48.11-3.07 0 0 .97-.31 3.18 1.18a11 11 0 0 1 2.9-.39c.98 0 1.97.13 2.9.39 2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.24 2.77.12 3.06.74.81 1.19 1.84 1.19 3.1 0 4.41-2.69 5.38-5.25 5.67.42.36.78 1.06.78 2.14v3.18c0 .31.21.67.8.56A10.53 10.53 0 0 0 23.5 12C23.5 5.74 18.27.5 12 .5Z" />
-    </svg>
-  );
+// AWS and Groq get a text initial in the slot instead of a recolored logo -
+// see the file header comment for why.
+function InitialMark({ children }) {
+  return <span className="text-[11px] font-semibold tracking-[.02em]">{children}</span>;
 }
 
-const TIMELINE = [
-  {
-    title: "React + FastAPI",
-    logos: [ReactLogo, FastAPILogo],
-    body: "A single-page interface backed by a REST API, served as one application.",
-  },
-  {
-    title: "Prompt Engineering",
-    logos: [],
-    body: "A multi-stage strategy that runs a requirements interview before generating the document.",
-  },
-  {
-    title: "Google Gemini",
-    logos: [GeminiLogo],
-    body: "Powers the analyst questions and the structured requirements output.",
-  },
-  {
-    title: "Docker",
-    logos: [DockerLogo],
-    body: "A multi-stage build: Node compiles the frontend, Python runs the API, shipped as one image.",
-  },
-  {
-    title: "Amazon ECR + ECS",
-    logos: [AWSLogo],
-    body: "The image is stored in ECR and deployed as a managed container on AWS.",
-  },
-  {
-    title: "GitHub Actions",
-    logos: [GitHubLogo],
-    body: "Every push to main builds, pushes, and redeploys automatically, authenticated with OIDC, no stored credentials.",
-  },
+const ROW_REQUEST = [
+  { name: "React", caption: "browser", logo: <ReactLogo /> },
+  { name: "FastAPI", caption: "REST API", logo: <FastAPILogo /> },
+  { name: "Groq", caption: "gpt-oss-120b", logo: <InitialMark>Gr</InitialMark> },
+  { name: "Pydantic", caption: "schema check", logo: <PydanticLogo /> },
 ];
+
+const ROW_DEPLOY = [
+  { name: "GitHub Actions", caption: "push to main", logo: <GitHubActionsLogo /> },
+  { name: "Docker", caption: "multi-stage image", logo: <DockerLogo /> },
+  { name: "AWS", caption: "ECR, ECS, ALB", logo: <InitialMark>AW</InitialMark> },
+];
+
+function HairlineLabel({ children }) {
+  return (
+    <div className="relative mb-10 h-px bg-border">
+      <span className="absolute left-0 top-1/2 -translate-y-1/2 bg-panel pr-3 text-[12.5px] font-semibold text-accent leading-none">
+        {children}
+      </span>
+    </div>
+  );
+}
+
+function FlowNode({ node }) {
+  return (
+    <div
+      className="flex items-center gap-3 w-full border-b border-border py-[13px]
+        min-[901px]:w-auto min-[901px]:border-b-0 min-[901px]:border min-[901px]:border-border
+        min-[901px]:rounded-xl min-[901px]:bg-white/50 min-[901px]:px-3.5 min-[901px]:py-2.5"
+    >
+      <div className="w-[30px] h-[30px] flex-none rounded-lg border border-border flex items-center justify-center text-muted opacity-70">
+        {node.logo}
+      </div>
+      <div>
+        <div className="font-semibold text-[14.5px] text-ink leading-tight">{node.name}</div>
+        <div className="text-[12px] text-muted leading-tight">{node.caption}</div>
+      </div>
+    </div>
+  );
+}
+
+function FlowRow({ label, nodes }) {
+  return (
+    <div>
+      <div className="text-[12.5px] font-semibold text-accent mb-3">{label}</div>
+      <div className="flex flex-col min-[901px]:flex-row min-[901px]:items-center gap-0 min-[901px]:gap-3">
+        {nodes.map((node, i) => (
+          <div key={node.name} className="contents">
+            <FlowNode node={node} />
+            {i < nodes.length - 1 && (
+              <span className="hidden min-[901px]:inline text-muted px-1" aria-hidden="true">
+                →
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function HowItWasBuiltSection() {
   return (
-    <section className="max-w-2xl mx-auto px-6 py-24 md:py-28">
-      <div className="text-center mb-16">
-        <div className="text-[11px] font-bold tracking-[0.09em] uppercase text-accent mb-3">
-          Under the Hood
-        </div>
-        <h2 className="font-display font-extrabold text-3xl md:text-4xl tracking-tight text-ink">
-          How ReqPrint Was Built
-        </h2>
-      </div>
+    <section className="bg-panel rounded-[22px] min-[561px]:rounded-[30px] p-[46px_24px] min-[561px]:p-[74px_60px]">
+      <h2
+        className="font-display font-bold text-ink mb-10"
+        style={{ fontSize: "clamp(25px, 3vw, 33px)", lineHeight: 1.2 }}
+      >
+        How it's built
+      </h2>
 
-      <div className="relative pl-7">
-        <div className="absolute left-[3px] top-1.5 bottom-1.5 w-px bg-border" />
-        {TIMELINE.map((item, i) => (
-          <div key={item.title} className={`relative ${i > 0 ? "mt-9" : ""}`}>
-            <span className="absolute -left-7 top-1.5 w-[7px] h-[7px] rounded-full bg-accent" />
-            <div className="flex items-center gap-2">
-              {item.logos.map((Logo, j) => (
-                <Logo key={j} className="text-muted shrink-0" />
-              ))}
-              <span className="font-display font-bold text-[15px] text-ink">{item.title}</span>
-            </div>
-            <div className="text-sm text-muted leading-relaxed mt-1">{item.body}</div>
-          </div>
-        ))}
+      <HairlineLabel>Stack</HairlineLabel>
+
+      <div className="flex flex-col gap-9">
+        <FlowRow label="A request" nodes={ROW_REQUEST} />
+        <FlowRow label="A deploy" nodes={ROW_DEPLOY} />
       </div>
     </section>
   );

@@ -30,7 +30,7 @@ const UC_FIELDS = [
 
 function RequirementList({ items, prefix, chipColor }) {
   return (
-    <div className="bg-white border border-border rounded-[14px] px-5 py-1.5">
+    <div className="bg-panel border border-border rounded-[14px] px-5 py-1.5">
       {items.map((text, i) => (
         <div
           key={i}
@@ -56,12 +56,12 @@ export function RequirementsSection({ requirements }) {
       <h3 className="font-display font-bold text-[15px] text-ink mb-1 mt-6">
         1.1 &nbsp;Functional
       </h3>
-      <RequirementList items={requirements.functional} prefix="FR" chipColor="#641F2A" />
+      <RequirementList items={requirements.functional} prefix="FR" chipColor="#7A1F2B" />
 
       <h3 className="font-display font-bold text-[15px] text-ink mb-1 mt-7">
         1.2 &nbsp;Non-functional
       </h3>
-      <RequirementList items={requirements.non_functional} prefix="NF" chipColor="#48151E" />
+      <RequirementList items={requirements.non_functional} prefix="NF" chipColor="#5A1620" />
     </section>
   );
 }
@@ -77,7 +77,7 @@ export function UserStoriesSection({ userStories }) {
         {userStories.map((s, i) => (
           <div
             key={i}
-            className="bg-white border border-border rounded-[14px] px-4.5 py-4 flex flex-col gap-2.5"
+            className="bg-panel border border-border rounded-[14px] px-4.5 py-4 flex flex-col gap-2.5"
           >
             <span className="font-mono text-xs font-bold text-accent bg-accent/8 px-2.5 py-0.5 rounded-md w-fit">
               {s.id}
@@ -106,7 +106,7 @@ function DocTable({ columns, rows }) {
     return <EmptyNotice>No data available.</EmptyNotice>;
   }
   return (
-    <div className="bg-white border border-border rounded-[14px] overflow-hidden overflow-x-auto">
+    <div className="bg-panel border border-border rounded-[14px] overflow-hidden overflow-x-auto">
       <table className="w-full text-left border-collapse min-w-[600px]">
         <thead>
           <tr className="bg-surface">
@@ -158,7 +158,7 @@ export function UseCasesSection({ useCases }) {
       {useCases.length ? (
         <div className="flex flex-col gap-4">
           {useCases.map((uc, i) => (
-            <div key={i} className="bg-white border border-border rounded-[14px] overflow-hidden">
+            <div key={i} className="bg-panel border border-border rounded-[14px] overflow-hidden">
               <div className="px-4 py-2.5 bg-surface">
                 <span className="font-mono text-xs font-bold text-accent">{uc.use_case_id}</span>
               </div>
@@ -197,8 +197,8 @@ export function AssumptionsSection({ assumptions }) {
         <div
           className="rounded-[14px] px-5 py-1.5"
           style={{
-            background: "linear-gradient(180deg, rgba(100,31,42,0.05), rgba(100,31,42,0.015))",
-            border: "1px solid rgba(100,31,42,0.20)",
+            background: "rgba(122,31,43,0.035)",
+            border: "1px solid rgba(122,31,43,0.20)",
           }}
         >
           {assumptions.map((text, i) => (
@@ -244,13 +244,13 @@ export function ReviewSection({ issues, loading, error }) {
       )}
 
       {loading && !issues.length && (
-        <div className="bg-white border border-border rounded-[14px] px-5 py-4 text-sm text-ink">
+        <div className="bg-panel border border-border rounded-[14px] px-5 py-4 text-sm text-ink">
           Reviewing requirements...
         </div>
       )}
 
       {!loading && !error && !issues.length && (
-        <div className="bg-white border border-border rounded-[14px] px-5 py-4 text-sm text-ink">
+        <div className="bg-panel border border-border rounded-[14px] px-5 py-4 text-sm text-ink">
           Run a review to check this SRS for ambiguity, gaps, risks, and testability issues.
         </div>
       )}
@@ -261,7 +261,7 @@ export function ReviewSection({ issues, loading, error }) {
             const severity = String(item.severity || "").toLowerCase();
             const severityClass = SEVERITY_STYLES[severity] || SEVERITY_STYLES.medium;
             return (
-              <div key={i} className="bg-white border border-border rounded-[14px] overflow-hidden">
+              <div key={i} className="bg-panel border border-border rounded-[14px] overflow-hidden">
                 <div className="px-4 py-3 bg-surface flex flex-wrap items-center gap-2.5">
                   <span className="font-display font-bold text-[13px] text-ink">
                     {item.role}

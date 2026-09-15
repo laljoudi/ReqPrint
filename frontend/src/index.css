@@ -1,20 +1,26 @@
 @import "tailwindcss";
 
-/* Warm palette: Soft Butter / Warm Cream / Velvet Burgundy / Deep Burgundy /
-   Warm Brown / Muted Taupe / Soft Beige / Dusty Rose. Every color used in the
-   app must trace back to one of these eight - no blue, purple, red, or amber
-   from Tailwind's default palette anywhere. */
+/* Sand/panel palette (homepage + workspace share these). The 7 primary roles
+   are page/panel/panel-2/ink/muted/accent/border ("hair"); the remaining
+   tokens below are workspace-only supporting roles (severity, hints, chat
+   bubble) derived from the same palette rather than left as separate colors.
+   --color-muted on --color-panel measures ~5.21:1 (on --color-panel-2
+   ~4.94:1) - both clear the 4.5:1 AA minimum for body text, no darkening
+   needed. */
 @theme {
-  --color-accent: #641f2a; /* Velvet Burgundy - primary accent */
-  --color-accent-dark: #48151e; /* Deep Burgundy - hover / stronger emphasis */
-  --color-ink: #332a28; /* Warm Brown - primary text */
-  --color-muted: #81756d; /* Muted Taupe - secondary text */
-  --color-hint: #81756d; /* Muted Taupe (palette has no second gray) */
-  --color-border: #e5d8c2; /* Soft Beige - borders and dividers */
-  --color-nonfunc: #48151e; /* Deep Burgundy - distinguishes NF from FR chips */
-  --color-bubble: #fbf8f1; /* Warm Cream - assistant chat bubble */
-  --color-surface: #fbf8f1; /* Warm Cream - secondary backgrounds / surfaces */
-  --color-rose: #b98f8f; /* Dusty Rose - sparing decorative accent only */
+  --color-page: #e6decc;
+  --color-panel: #f4eee1;
+  --color-panel-2: #efe8d9;
+  --color-ink: #2b2521;
+  --color-muted: #6b615a;
+  --color-accent: #7a1f2b;
+  --color-border: #dcd2bf;
+
+  --color-accent-dark: #5a1620; /* darker accent - error text, high-severity */
+  --color-hint: #6b615a; /* same value as muted - keeps small meta text at 4.5:1+ */
+  --color-surface: #efe8d9; /* alias of panel-2 - workspace hover/table-header fills */
+  --color-rose: #b98f8f; /* low-severity accent, unchanged */
+  --color-butter: #f5ebd7; /* user chat bubble tint */
 
   --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
   --font-sans: "Inter", system-ui, sans-serif;
@@ -27,7 +33,7 @@
 
 body {
   margin: 0;
-  background: #f5ebd7; /* Soft Butter - primary background */
+  background: var(--color-page);
   color: var(--color-ink);
   font-family: var(--font-sans);
 }

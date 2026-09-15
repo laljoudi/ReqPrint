@@ -100,6 +100,10 @@ STEP 2 - Analyze before asking:
 - These are the areas: users and roles, core features, what is explicitly OUT of scope,
   data, integrations, notifications, constraints (performance, security), success criteria.
 - Pick the UNCOVERED area that matters MOST for writing accurate requirements.
+- If the description states a project category, let that inform which specific angles
+  you probe within these areas (e.g., a FinTech project's "constraints" likely means
+  regulatory/compliance, not just performance) - it does not add new areas or change
+  when to stop.
 
 STEP 3 - Ask ONE question about that area.
 
