@@ -1,6 +1,6 @@
-// Panel 2 of the homepage: the 4-step working flow, plus a 5th step that
-// isn't built yet - visually separated and dimmed so it never reads as part
-// of the working product.
+// Panel 2 of the homepage: the working flow (five steps, the last of them Push
+// to Jira), plus one more step that isn't built yet - visually separated and
+// dimmed so it never reads as part of the working product.
 const STEPS = [
   { n: "01", title: "Start with an idea. Or a mess of notes. Either works" },
   {
@@ -17,6 +17,13 @@ const STEPS = [
     n: "04",
     title: "Review, refine, export",
     desc: "Three AI perspectives catch what's missing before you download.",
+  },
+  {
+    n: "05",
+    title: "Push to Jira",
+    desc: "One click turns your user stories into a Jira project: an epic, dated sprints, and tasks ordered by what depends on what. Sprint count comes from your team's weekly capacity, not from an AI guess.",
+    // Longer than the others, so it gets a full-width row of its own instead of a narrow column.
+    wide: true,
   },
 ];
 
@@ -48,18 +55,18 @@ export default function HowItWorksSection() {
 
       <div className="grid grid-cols-1 min-[561px]:grid-cols-2 min-[901px]:grid-cols-4 gap-9">
         {STEPS.map((step) => (
-          <div key={step.n} className="text-left">
+          <div key={step.n} className={`text-left ${step.wide ? "min-[561px]:col-span-full" : ""}`}>
             <div className="font-mono text-[13px] text-accent tabular-nums mb-2">{step.n}</div>
             <div className="font-display font-semibold text-base text-ink mb-1">{step.title}</div>
             {step.desc && (
-              <p className="text-[14.5px] leading-[1.55] text-muted m-0">{step.desc}</p>
+              <p className={`text-[14.5px] leading-[1.55] text-muted m-0 ${step.wide ? "max-w-[640px]" : ""}`}>{step.desc}</p>
             )}
           </div>
         ))}
       </div>
 
       <div className="mt-10 pt-[26px] border-t border-border opacity-[.72]">
-        <div className="font-mono text-[13px] text-accent tabular-nums mb-2">05</div>
+        <div className="font-mono text-[13px] text-accent tabular-nums mb-2">06</div>
         <div className="flex items-center flex-wrap gap-2.5 mb-1">
           <span className="font-display font-semibold text-base text-ink">
             Check against real standards

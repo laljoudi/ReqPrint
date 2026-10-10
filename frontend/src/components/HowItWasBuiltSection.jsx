@@ -3,11 +3,11 @@
 //
 // Logos: React, FastAPI, Docker, Pydantic, and GitHub Actions are Simple
 // Icons marks (CC0 1.0 - public domain, no attribution required), recolored
-// via currentColor. AWS and Groq are deliberately text-only, not empty and
-// not a recolored logo: AWS's trademark guidelines prohibit altering their
-// mark's color, and Groq has no CC0/first-party asset to source from - so a
-// muted-brown "AW"/"Gr" initial in the same slot keeps the row's rhythm
-// without modifying a mark that isn't ours to modify.
+// via currentColor. Groq and Jira are deliberately text-only, not empty and
+// not a recolored logo: Atlassian's trademark guidelines allow resizing its
+// logos but not recoloring them, and Groq has no CC0/first-party asset to
+// source from - so a muted-brown "Gr"/"Ji" initial in the same slot keeps the
+// row's rhythm without modifying a mark that isn't ours to modify.
 function ReactLogo() {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" role="img">
@@ -68,7 +68,7 @@ function GitHubActionsLogo() {
   );
 }
 
-// AWS and Groq get a text initial in the slot instead of a recolored logo -
+// Groq and Jira get a text initial in the slot instead of a recolored logo -
 // see the file header comment for why.
 function InitialMark({ children }) {
   return <span className="text-[11px] font-semibold tracking-[.02em]">{children}</span>;
@@ -79,12 +79,12 @@ const ROW_REQUEST = [
   { name: "FastAPI", caption: "REST API", logo: <FastAPILogo /> },
   { name: "Groq", caption: "gpt-oss-120b", logo: <InitialMark>Gr</InitialMark> },
   { name: "Pydantic", caption: "schema check", logo: <PydanticLogo /> },
+  { name: "Jira", caption: "OAuth 2.0 · REST + Agile API", logo: <InitialMark>Ji</InitialMark> },
 ];
 
 const ROW_DEPLOY = [
   { name: "GitHub Actions", caption: "push to main", logo: <GitHubActionsLogo /> },
   { name: "Docker", caption: "multi-stage image", logo: <DockerLogo /> },
-  { name: "AWS", caption: "ECR, ECS, ALB", logo: <InitialMark>AW</InitialMark> },
 ];
 
 function HairlineLabel({ children }) {
@@ -107,7 +107,7 @@ function FlowNode({ node }) {
       <div className="w-[30px] h-[30px] flex-none rounded-lg border border-border flex items-center justify-center text-muted opacity-70">
         {node.logo}
       </div>
-      <div>
+      <div className="min-[901px]:whitespace-nowrap">
         <div className="font-semibold text-[14.5px] text-ink leading-tight">{node.name}</div>
         <div className="text-[12px] text-muted leading-tight">{node.caption}</div>
       </div>
@@ -119,12 +119,14 @@ function FlowRow({ label, nodes }) {
   return (
     <div>
       <div className="text-[12.5px] font-semibold text-accent mb-3">{label}</div>
-      <div className="flex flex-col min-[901px]:flex-row min-[901px]:items-center gap-0 min-[901px]:gap-3">
+      {/* On wide screens the flow runs left to right and wraps between nodes when it runs out of room
+          (rather than squeezing a node's text); each arrow stays attached to the node before it. */}
+      <div className="flex flex-col min-[901px]:flex-row min-[901px]:flex-wrap min-[901px]:items-center gap-0 min-[901px]:gap-x-2.5 min-[901px]:gap-y-3">
         {nodes.map((node, i) => (
-          <div key={node.name} className="contents">
+          <div key={node.name} className="flex flex-col min-[901px]:flex-row min-[901px]:flex-none min-[901px]:items-center min-[901px]:gap-2.5">
             <FlowNode node={node} />
             {i < nodes.length - 1 && (
-              <span className="hidden min-[901px]:inline text-muted px-1" aria-hidden="true">
+              <span className="hidden min-[901px]:inline text-muted" aria-hidden="true">
                 →
               </span>
             )}

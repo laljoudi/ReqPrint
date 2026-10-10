@@ -7,6 +7,7 @@
 // what any button calls; App.jsx's handlers and state shape are unchanged,
 // only how they're laid out and displayed.
 import { useState } from "react";
+import JiraPush from "./JiraPush";
 import {
   RequirementsSection,
   UserStoriesSection,
@@ -204,6 +205,7 @@ export default function WorkspaceScreen({
   onReview,
   reviewing,
   reviewError,
+  jira,
 }) {
   const [input, setInput] = useState("");
   const [category, setCategory] = useState(null);
@@ -411,6 +413,13 @@ export default function WorkspaceScreen({
                       : "Review Requirements"}
                 </button>
                 <ComplianceCheckButton onClick={() => setShowComplianceNotice(true)} />
+                <JiraPush
+                  data={data}
+                  description={description}
+                  category={category}
+                  jira={jira}
+                  buttonClassName="h-9 px-3.5 rounded-lg border border-border bg-panel text-muted font-semibold text-xs hover:bg-surface disabled:opacity-60 transition-colors"
+                />
                 <button
                   onClick={onStartOver}
                   className="h-9 px-3.5 rounded-lg border border-border bg-panel text-muted font-semibold text-xs hover:bg-surface transition-colors"

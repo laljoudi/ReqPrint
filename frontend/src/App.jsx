@@ -2,7 +2,8 @@
 // we're on, the data collected so far) and decides which screen to show.
 // Each screen component below is "dumb" - it just displays props and calls
 // the on... callbacks passed to it; App.jsx is the only place state changes.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import JiraNotice from "./components/JiraNotice";
 import WelcomeScreen from "./components/WelcomeScreen";
 import WorkspaceScreen from "./components/WorkspaceScreen";
 import {
@@ -12,7 +13,14 @@ import {
   reviewRequirements,
   extractFromNotes,
   exportDocx,
+  getJiraStatus,
+  jiraLogout,
+  pushToJira,
+  JIRA_LOGIN_URL,
 } from "./lib/api";
+import { startJiraConnect } from "./lib/jiraConnect";
+import { hashDocument } from "./lib/jiraPlan";
+import { clearPushStarted, hasUnfinishedPush, markPushStarted, savePushRecord } from "./lib/jiraStorage";
 
 const MAX_QUESTIONS = 8;
 
@@ -54,6 +62,12 @@ function prependCategory(rawInput, category) {
   return `Project category: ${category}\n\n${rawInput}`;
 }
 
+// Whether this browser has a Jira connection. "unknown" until the check on load
+// answers (or if it couldn't). The refresh token itself lives in an HttpOnly
+// cookie this page can't read - only the site's name and URL come back.
+const jiraUnknown = { status: "unknown", siteName: "", siteUrl: "" };
+const jiraDisconnected = { status: "disconnected", siteName: "", siteUrl: "" };
+
 function App() {
   const [flow, setFlow] = useState(emptyFlow);
 
@@ -64,6 +78,18 @@ function App() {
   const [refineError, setRefineError] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const [reviewError, setReviewError] = useState("");
+  const [jiraConn, setJiraConn] = useState(jiraUnknown);
+  // A push that started in an earlier visit and never reported back (read once, on load).
+  const [unfinishedPush, setUnfinishedPush] = useState(() => hasUnfinishedPush());
+
+  // Ask the backend once, on load, whether Jira is connected. (The ref keeps React's
+  // development double-run of effects from asking twice.)
+  const askedJiraStatus = useRef(false);
+  useEffect(() => {
+    if (askedJiraStatus.current) return;
+    askedJiraStatus.current = true;
+    handleJiraRefresh();
+  }, []);
 
   // The single first-turn entry point, for whatever the user typed or pasted -
   // a clean description or messy notes, it doesn't matter which. Always runs
@@ -187,6 +213,59 @@ function App() {
     }
   }
 
+  // Calls GET /api/jira/status. Returns "connected", "disconnected" or "unknown".
+  async function handleJiraRefresh() {
+    try {
+      const s = await getJiraStatus();
+      setJiraConn(s.connected ? { status: "connected", siteName: s.siteName, siteUrl: s.siteUrl } : jiraDisconnected);
+      return s.connected ? "connected" : "disconnected";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  // Opens the Atlassian sign-in popup. Returns { done, cancel }: `done` settles when the
+  // user has finished (or failed, or given up), `cancel` closes the popup.
+  function handleJiraConnect() {
+    const attempt = startJiraConnect(JIRA_LOGIN_URL);
+    const done = attempt.promise
+      .catch(async (err) => {
+        // A popup closed with no message may still have connected (the message can be lost).
+        if (err?.code === "popup_closed" && (await handleJiraRefresh()) === "connected") return;
+        throw err;
+      })
+      .then(handleJiraRefresh);
+    return { done, cancel: attempt.cancel };
+  }
+
+  // Calls POST /api/jira/logout.
+  async function handleJiraDisconnect() {
+    await jiraLogout();
+    setJiraConn(jiraDisconnected);
+  }
+
+  // Calls POST /api/jira/push - 20-40 seconds. A "push started" marker is kept in
+  // localStorage until we know how it went, so a push cut off by closing the tab is
+  // flagged on the next load. If the answer never came back readable (connection lost,
+  // gateway timeout) the push may have partly run, so the marker stays.
+  async function handleJiraPush(params) {
+    markPushStarted();
+    try {
+      const result = await pushToJira(params);
+      clearPushStarted();
+      savePushRecord(hashDocument(params.requirements), {
+        projectKey: result.project_key,
+        projectUrl: result.project_url,
+        storyCount: result.stories_created,
+      });
+      return result;
+    } catch (err) {
+      if (!err.outcomeUnknown) clearPushStarted();
+      if (err.code === "reconnect_required" || err.code === "not_connected") setJiraConn(jiraDisconnected);
+      throw err;
+    }
+  }
+
   function handleStartOver() {
     setFlow(emptyFlow);
     setChatError("");
@@ -194,36 +273,61 @@ function App() {
     setReviewError("");
   }
 
+  const notice = unfinishedPush && (
+    <JiraNotice
+      onDismiss={() => {
+        clearPushStarted();
+        setUnfinishedPush(false);
+      }}
+    />
+  );
+
   if (flow.stage === "welcome") {
-    return <WelcomeScreen onStart={() => setFlow((f) => ({ ...f, stage: "workspace" }))} />;
+    return (
+      <>
+        {notice}
+        <WelcomeScreen onStart={() => setFlow((f) => ({ ...f, stage: "workspace" }))} />
+      </>
+    );
   }
 
   if (flow.stage === "workspace") {
     return (
-      <WorkspaceScreen
-        description={flow.description}
-        qaHistory={flow.qaHistory}
-        currentQuestion={flow.currentQuestion}
-        currentSuggestions={flow.currentSuggestions}
-        readyToGenerate={flow.readyToGenerate}
-        onStart={handleStart}
-        onAnswer={handleAnswer}
-        onGenerate={handleGenerate}
-        loading={chatLoading}
-        error={chatError}
-        data={flow.data}
-        onDownload={handleDownload}
-        downloading={downloading}
-        onStartOver={handleStartOver}
-        onRefine={handleRefine}
-        refineHistory={flow.refineHistory}
-        refining={refining}
-        refineError={refineError}
-        review={flow.review}
-        onReview={handleReview}
-        reviewing={reviewing}
-        reviewError={reviewError}
-      />
+      <>
+        {notice}
+        <WorkspaceScreen
+          description={flow.description}
+          qaHistory={flow.qaHistory}
+          currentQuestion={flow.currentQuestion}
+          currentSuggestions={flow.currentSuggestions}
+          readyToGenerate={flow.readyToGenerate}
+          onStart={handleStart}
+          onAnswer={handleAnswer}
+          onGenerate={handleGenerate}
+          loading={chatLoading}
+          error={chatError}
+          data={flow.data}
+          onDownload={handleDownload}
+          downloading={downloading}
+          onStartOver={handleStartOver}
+          onRefine={handleRefine}
+          refineHistory={flow.refineHistory}
+          refining={refining}
+          refineError={refineError}
+          review={flow.review}
+          onReview={handleReview}
+          reviewing={reviewing}
+          reviewError={reviewError}
+          jira={{
+            status: jiraConn.status,
+            siteName: jiraConn.siteName,
+            onRefresh: handleJiraRefresh,
+            onConnect: handleJiraConnect,
+            onDisconnect: handleJiraDisconnect,
+            onPush: handleJiraPush,
+          }}
+        />
+      </>
     );
   }
 

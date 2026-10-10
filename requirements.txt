@@ -5,3 +5,5 @@ groq
 python-dotenv
 python-docx
 slowapi
+cryptography
+httpx

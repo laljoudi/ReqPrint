@@ -31,6 +31,9 @@ rough idea to a solid first draft in minutes instead of days.
   a severity and a suggested fix.
 - **One-click Word export** — download the whole spec as a polished `.docx`, ready to
   share.
+- **Push to Jira** — one click turns the generated user stories into a real Jira
+  project: an epic, dated sprints, and tasks ordered by dependency, created in your
+  own Jira through OAuth 2.0.
 
 ## How It Works
 
@@ -85,6 +88,52 @@ OIDC — GitHub exchanges a short-lived token for temporary AWS credentials at r
 there are **no long-lived AWS access keys stored** in the repository or CI secrets. Deploys
 are hands-off and the credential blast radius stays minimal.
 
+## Architecture
+
+### The Jira push
+
+Connecting happens in a popup: ReqPrint sends you to Atlassian's own consent screen, and
+the callback page tells the app window how it went, so the generated document is never
+lost to a page redirect. Once connected, a push runs these steps in order:
+
+1. **Preflight** — the project is created (or looked up), its Scrum board is found, and
+   the Epic and Story issue types are resolved (Task if the project has no Story). If any
+   of this fails, no epic, story, or sprint is created.
+2. **AI ordering** — the model puts the user stories in dependency order, with a one-line
+   reason for each position. If its answer is unusable, the document's own order is used.
+3. **Sprint math** — plain arithmetic: stories per sprint = weekly capacity × sprint
+   length, sprint count = stories ÷ that, rounded up. Sprints run back to back from the
+   chosen start date.
+4. **Create the epic and stories** — one epic named after the project, with the
+   requirements and assumptions in its description; one issue per story, with its role
+   and Given/When/Then criteria, parented to the epic.
+5. **Create the sprints** — one per block of stories, dated, and left in the future state.
+6. **Distribute** — each story is moved into its sprint one at a time, ranked after the
+   previous one, so the order in Jira is the dependency order.
+
+It spans two Jira API surfaces: the platform REST API (projects, issue types, issues) and
+the Agile API (boards, sprints, and moving issues into them). Each needs its own scopes,
+which is why the app requests both kinds — see the setup section below.
+
+## Design Decisions
+
+**No AI estimation.** Asking a model for story points produces confident, meaningless
+numbers. Sprint count is arithmetic from one real user input: weekly team capacity. The
+AI only orders stories by dependency; it never sizes them.
+
+**No database.** The Jira connection is held in an encrypted (Fernet) HttpOnly cookie.
+Atlassian rotates refresh tokens on every use, so each request saves the new one back to
+the cookie; no token is ever stored server-side.
+
+**OAuth over API tokens.** Users never paste a credential into ReqPrint. They approve
+access on Atlassian's own screen, and can revoke it from their Atlassian account.
+
+**Partial failure is surfaced, not rolled back.** Preflight validates the project, board,
+and issue types before any epic, story, or sprint is created. If an individual story
+fails afterwards, the rest proceed and the failure is reported with Jira's own reason.
+(When ReqPrint creates the project itself, that happens during preflight, so a failure
+right after it can leave an empty project — the dialog says so.)
+
 ## Running Locally
 
 ReqPrint ships as a single Docker image that serves both the API and the built frontend on
@@ -95,9 +144,16 @@ one port.
 git clone https://github.com/laljoudi/ReqPrint.git
 cd ReqPrint
 
-# 2. Create a .env with your Groq API key (variable names + placeholders only)
+# 2. Create a .env with your Groq API key and the Jira settings
+#    (variable names + placeholders only - see "Setting Up the Jira Integration" below)
 cat > .env <<'EOF'
 GROQ_API_KEY=your_key_here
+JIRA_CLIENT_ID=your_atlassian_client_id
+JIRA_CLIENT_SECRET=your_atlassian_client_secret
+JIRA_REDIRECT_URI=http://localhost:8000/api/jira/callback
+FRONTEND_ORIGIN=http://localhost:8000
+SESSION_SECRET=generate_a_fernet_key
+APP_ENV=local
 EOF
 
 # 3. Build the image
@@ -111,5 +167,97 @@ Then open **http://localhost:8000**.
 
 > You'll need your own [Groq API key](https://console.groq.com/keys). The
 > key stays server-side — it's read by the backend and never exposed to the browser.
+>
+> The Jira settings are required at startup: the server refuses to start if any of the
+> six is missing, even if you never click Push to Jira. The next section covers them.
+
+## Setting Up the Jira Integration
+
+ReqPrint pushes to your own Jira Cloud site through OAuth 2.0 (3LO), so you register an
+app with Atlassian once and give the server its credentials.
+
+### Environment variables
+
+Names only — put the values in your `.env` (there is a template in `.env.example`), never
+in the repository:
+
+- `JIRA_CLIENT_ID` — your Atlassian app's client ID
+- `JIRA_CLIENT_SECRET` — its secret; read by the backend only, never sent to the browser
+- `JIRA_REDIRECT_URI` — the callback URL, exactly as registered with Atlassian (below)
+- `FRONTEND_ORIGIN` — the origin the app is served from: scheme and host, plus the port
+  if there is one, and no path. The sign-in popup reports back to exactly this origin
+- `SESSION_SECRET` — the key that encrypts the Jira connection cookie (generated below)
+- `APP_ENV` — `local` or `prod`
+
+### Registering the Atlassian app
+
+1. Open the [Atlassian developer console](https://developer.atlassian.com/console/myapps/)
+   and create an **OAuth 2.0 integration**.
+2. Under **Permissions**, add the **Jira API** and enable these 13 scopes.
+
+   Classic scopes:
+   - `read:jira-work`
+   - `write:jira-work`
+   - `read:jira-user`
+   - `manage:jira-project`
+   - `manage:jira-configuration`
+
+   Granular scopes for the Agile API (boards and sprints):
+   - `read:board-scope:jira-software`
+   - `write:board-scope:jira-software`
+   - `read:sprint:jira-software`
+   - `write:sprint:jira-software`
+   - `write:issue:jira-software`
+
+   Granular scopes the Agile API also needs from the platform side:
+   - `read:project:jira`
+   - `read:issue-details:jira`
+   - `read:jql:jira`
+
+   The Agile API accepts no classic scopes, which is why both kinds are needed. A third
+   scope, `offline_access`, is what makes refresh tokens possible; the app requests it at
+   sign-in and there is nothing to enable for it in the console.
+3. Under **Authorization**, add the callback URL for **OAuth 2.0 (3LO)**. Its format is
+   your app's origin followed by `/api/jira/callback`:
+   - locally: `http://localhost:8000/api/jira/callback`
+   - in production: `https://<your-domain>/api/jira/callback`
+
+   It must match `JIRA_REDIRECT_URI` exactly — scheme, host, port, and path.
+4. Under **Settings**, copy the client ID and secret into `JIRA_CLIENT_ID` and
+   `JIRA_CLIENT_SECRET`.
+
+A scope that is requested but not enabled in the console makes Atlassian's consent screen
+fail. Existing connections keep the scopes they were granted, so after changing scopes,
+reconnect.
+
+### Generating `SESSION_SECRET`
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Keep it secret and keep it stable: changing it makes every saved Jira connection
+unreadable, so everyone has to connect again.
+
+### Production
+
+Set `APP_ENV=prod`. That marks the connection cookies `Secure`, and browsers only keep
+and send those over HTTPS — so the app requires HTTPS in production (terminating TLS at a
+proxy or load balancer is fine). Over plain HTTP the browser refuses to store the cookie
+and connecting will not work. `JIRA_REDIRECT_URI` and `FRONTEND_ORIGIN` should then be
+`https://` URLs.
+
+For local development, use the built app on port 8000 rather than the Vite dev server:
+the sign-in popup reports back to `FRONTEND_ORIGIN`, which is set to that origin.
+
+## Known Limitations
+
+- **"Use an existing project" is not implemented.** Every push creates a new project.
+  (The backend can already push into an existing one; there is just no way yet to list
+  your projects in the interface.)
+- **If you have several Jira sites, the first one is used.**
+- **The duplicate-push warning lives in `localStorage`,** so it is per-browser — pushing
+  the same document from another browser or after clearing site data won't be flagged.
+- **A push is capped at 100 stories.**
 
 ## Screenshots

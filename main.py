@@ -1,14 +1,17 @@
 """FastAPI backend for ReqPrint. Wraps the existing ai.py / export.py logic as HTTP
 endpoints, and (once built) serves the React app itself, so the whole thing runs as
 one process on one port."""
+import asyncio
 import os
+from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -20,8 +23,27 @@ from ai import (
     revise_requirements,
     review_requirements,
     extract_from_notes,
+    plan_story_order,
 )
 from export import build_docx
+from jira_client import TokenRefreshError, refresh_access_token
+from jira_push import MAX_STORIES, run_push
+from sprint_plan import MAX_SPRINT_LENGTH_WEEKS, MIN_SPRINT_LENGTH_WEEKS, parse_start_date
+from jira_oauth import (
+    CONNECTION_COOKIE,
+    STATE_COOKIE,
+    JiraOAuthError,
+    build_authorize_url,
+    clear_connection_cookie,
+    exchange_code,
+    finish_popup,
+    load_connection,
+    new_state,
+    provider_error_reason,
+    set_connection_cookie,
+    set_state_cookie,
+    states_match,
+)
 
 load_dotenv()
 API_KEY = os.getenv("GROQ_API_KEY")
@@ -67,6 +89,70 @@ class ReviewRequest(BaseModel):
 
 class ExtractNotesRequest(BaseModel):
     raw_notes: str
+
+
+class PushStory(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    id: str = Field(min_length=1, max_length=50)
+    role: str = ""
+    story: str = Field(min_length=1)
+
+
+class PushCriterion(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    story_id: str = ""
+    scenario: str = ""
+    given: str = ""
+    when: str = ""
+    then: str = ""
+
+
+class PushRequirementLists(BaseModel):
+    functional: list[str] = []
+    non_functional: list[str] = []
+
+
+class PushDocument(BaseModel):
+    """The parts of the generated requirements document a Jira push uses.
+    Anything else in the document (e.g. use_cases) is accepted and ignored."""
+
+    requirements: PushRequirementLists = PushRequirementLists()
+    user_stories: list[PushStory] = Field(min_length=1, max_length=MAX_STORIES)
+    acceptance_criteria: list[PushCriterion] = []
+    assumptions: list[str] = []
+
+    @model_validator(mode="after")
+    def story_ids_are_unique(self):
+        ids = [s.id for s in self.user_stories]
+        if len(set(ids)) != len(ids):
+            raise ValueError("user_stories must have unique ids")
+        return self
+
+
+class JiraPushRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    mode: Literal["create", "existing"]
+    project_name: str | None = Field(default=None, max_length=80)
+    project_key: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_]{1,50}$")
+    capacity_per_week: int = Field(strict=True, ge=1, le=50)
+    category: str | None = Field(default=None, max_length=80)
+    start_date: date | None = None  # "YYYY-MM-DD"; omitted -> sprint 1 starts today
+    sprint_length_weeks: int | None = Field(default=None, strict=True, ge=MIN_SPRINT_LENGTH_WEEKS, le=MAX_SPRINT_LENGTH_WEEKS)
+    requirements: PushDocument
+
+    @field_validator("start_date", mode="before")
+    @classmethod
+    def start_date_is_yyyy_mm_dd(cls, value):
+        # Pydantic's own date parsing also takes timestamps and other layouts; only YYYY-MM-DD is allowed here.
+        return None if value is None else parse_start_date(value)
+
+    @model_validator(mode="after")
+    def mode_has_what_it_needs(self):
+        if self.mode == "create" and not self.project_name:
+            raise ValueError('mode "create" needs project_name')
+        if self.mode == "existing" and not self.project_key:
+            raise ValueError('mode "existing" needs project_key')
+        return self
 
 
 def final_input_text(description: str, qa_history: list[QAItem]) -> str:
@@ -156,6 +242,114 @@ def export_endpoint(request: Request, data: dict):
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": "attachment; filename=requirements.docx"},
     )
+
+
+# ---------- Jira connection (stage 1: OAuth only) ----------
+
+@api.get("/jira/login")
+@limiter.limit("30/day")
+def jira_login(request: Request):
+    """Starts the Atlassian OAuth flow: remember a random `state` in a short-lived
+    cookie, then send the browser to Atlassian's consent screen."""
+    state = new_state()
+    response = RedirectResponse(build_authorize_url(state), status_code=302)
+    set_state_cookie(response, state)
+    return response
+
+
+@api.get("/jira/callback")
+@limiter.limit("30/day")
+async def jira_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+):
+    """Where Atlassian sends the user back. Always answers with the small popup
+    page that tells the app window how it went, then closes itself."""
+    if error:
+        return finish_popup({"type": "jira-error", "reason": provider_error_reason(error)})
+    if not code or not states_match(state, request.cookies.get(STATE_COOKIE)):
+        return finish_popup({"type": "jira-error", "reason": "state_mismatch"}, status_code=400)
+    try:
+        connection = await exchange_code(code)
+    except JiraOAuthError as e:
+        return finish_popup({"type": "jira-error", "reason": e.reason}, status_code=502)
+    return finish_popup({"type": "jira-connected"}, connection=connection)
+
+
+@api.get("/jira/status")
+@limiter.limit("300/day")
+def jira_status(request: Request):
+    """Whether this browser has a Jira connection. Never returns the refresh token."""
+    connection = load_connection(request.cookies.get(CONNECTION_COOKIE))
+    body = (
+        {"connected": True, "site_name": connection["site_name"], "site_url": connection["site_url"]}
+        if connection
+        else {"connected": False}
+    )
+    return JSONResponse(body, headers={"Cache-Control": "no-store"})
+
+
+@api.post("/jira/logout")
+@limiter.limit("30/day")
+def jira_logout(request: Request):
+    """Forgets the Jira connection by deleting the cookie."""
+    response = JSONResponse({"connected": False}, headers={"Cache-Control": "no-store"})
+    clear_connection_cookie(response)
+    return response
+
+
+# ---------- Jira push ----------
+
+async def order_stories_via_groq(user_stories: list[dict]) -> list[dict]:
+    """Runs the (blocking) AI ordering off the event loop, through call_groq so a
+    Groq quota/rate-limit error still becomes 503 quota_exhausted."""
+    return await asyncio.to_thread(call_groq, plan_story_order, user_stories)
+
+
+@api.post("/jira/push")
+@limiter.limit("10/day")
+async def jira_push(request: Request, req: JiraPushRequest):
+    """Builds a Jira project from the generated requirements: an epic, its stories
+    in a meaningful order, and future sprints holding them."""
+    if not API_KEY:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not found. Check your .env file.")
+    connection = load_connection(request.cookies.get(CONNECTION_COOKIE))
+    if not connection:
+        raise HTTPException(status_code=400, detail="not_connected")
+    try:
+        tokens = await refresh_access_token(connection["refresh_token"])
+    except TokenRefreshError as e:
+        # No new token exists, so the cookie is left exactly as it was.
+        if e.reconnect_required:
+            body = {
+                "detail": "reconnect_required",
+                "message": "Atlassian rejected the saved Jira connection - connect Jira again.",
+            }
+            return JSONResponse(body, status_code=401, headers={"Cache-Control": "no-store"})
+        body = {"detail": "token_refresh_failed", "message": "Could not refresh the Jira token (network problem or Atlassian outage). Try again."}
+        return JSONResponse(body, status_code=502, headers={"Cache-Control": "no-store"})
+
+    # Refresh tokens rotate: the one in the cookie is dead now, so the new one
+    # goes back on every response from here on, whether or not the rest works.
+    connection = {**connection, "refresh_token": tokens["refresh_token"]}
+    status, body = await run_push(
+        connection,
+        tokens["access_token"],
+        mode=req.mode,
+        project_name=req.project_name,
+        project_key=req.project_key,
+        capacity_per_week=req.capacity_per_week,
+        document=req.requirements.model_dump(),
+        order_stories=order_stories_via_groq,
+        category=req.category,
+        start_date=req.start_date,
+        sprint_length_weeks=req.sprint_length_weeks,
+    )
+    response = JSONResponse(body, status_code=status, headers={"Cache-Control": "no-store"})
+    set_connection_cookie(response, connection)
+    return response
 
 
 app.include_router(api)

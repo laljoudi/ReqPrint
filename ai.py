@@ -1,8 +1,10 @@
 """Everything related to calling Groq. Reusable by any interface."""
 import os
 import json
+import logging
+from collections import Counter
 from dotenv import load_dotenv
-from groq import Groq
+from groq import BadRequestError, Groq
 from functools import lru_cache
 from typing import Literal
 from pydantic import BaseModel
@@ -13,9 +15,11 @@ from prompts import (
     NEXT_QUESTION_PROMPT,
     REVIEW_PROMPT,
     NOTES_EXTRACTION_PROMPT,
+    STORY_ORDER_PROMPT,
 )
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 API_KEY = os.getenv("GROQ_API_KEY")
 MODEL = "openai/gpt-oss-120b"
 
@@ -87,6 +91,16 @@ class ReviewIssue(BaseModel):
 
 class ReviewResult(BaseModel):
     issues: list[ReviewIssue]
+
+
+class StoryOrderItem(BaseModel):
+    story_id: str
+    reason: str
+    depends_on: list[str]
+
+
+class StoryOrderPlan(BaseModel):
+    ordered_stories: list[StoryOrderItem]
 
 
 def _forbid_additional_properties(schema):
@@ -183,3 +197,68 @@ def extract_from_notes(raw_notes):
     shape is guaranteed rather than merely prompted for."""
     result = _structured_chat(NOTES_EXTRACTION_PROMPT, raw_notes, NotesExtraction)
     return result.model_dump()
+
+
+# Stands in for the model's "reason" when we couldn't use its order and kept the
+# document's own - so a caller can tell an AI order from a fallback one.
+FALLBACK_ORDER_REASON = "Kept in the original document order."
+
+
+def _document_order(story_ids):
+    return [{"story_id": sid, "reason": FALLBACK_ORDER_REASON, "depends_on": []} for sid in story_ids]
+
+
+def _check_story_order(items, story_ids):
+    """Validates the model's ordering against the input. Returns (order, problem):
+    the cleaned list if every input id appears exactly once (and nothing else
+    does), otherwise (None, a short description of what was wrong)."""
+    expected = set(story_ids)
+    cleaned = [
+        {"story_id": item.story_id.strip(), "reason": item.reason.strip(), "depends_on": item.depends_on}
+        for item in items
+    ]
+    ids = [c["story_id"] for c in cleaned]
+    counts = Counter(ids)
+    missing = expected - set(ids)
+    unknown = set(ids) - expected
+    duplicated = {i for i, n in counts.items() if n > 1}
+    if missing or unknown or duplicated:
+        return None, f"missing={len(missing)} unknown={len(unknown)} duplicated={len(duplicated)}"
+    for c in cleaned:
+        deps = dict.fromkeys(d.strip() for d in c["depends_on"])
+        c["depends_on"] = [d for d in deps if d in expected and d != c["story_id"]]
+    return cleaned, None
+
+
+def plan_story_order(user_stories):
+    """Order user stories by logical/dependency order - and nothing else: no
+    sizing, no points, no sprints (that's plain code in sprint_plan.py). Takes the
+    generated document's user_stories and returns [{story_id, reason, depends_on}],
+    every input id exactly once.
+
+    An unusable answer from the model (wrong ids, malformed output, a rejected
+    request) never reaches the caller: it is logged and the original document
+    order is returned instead. Anything else - notably Groq quota and rate-limit
+    errors - propagates, so main.call_groq can turn it into quota_exhausted."""
+    story_ids = [s["id"] for s in user_stories]
+    if not story_ids:
+        return []
+    if len(story_ids) == 1:
+        return [{"story_id": story_ids[0], "reason": "The only story.", "depends_on": []}]
+    if len(set(story_ids)) != len(story_ids):
+        logger.warning("plan_story_order: duplicate story ids in the input; keeping document order")
+        return _document_order(story_ids)
+
+    message = json.dumps(
+        [{"id": s["id"], "role": s.get("role", ""), "story": s.get("story", "")} for s in user_stories]
+    )
+    try:
+        plan = _structured_chat(STORY_ORDER_PROMPT, message, StoryOrderPlan)
+    except (ValueError, BadRequestError) as e:
+        logger.warning("plan_story_order: unusable model output (%s); keeping document order", type(e).__name__)
+        return _document_order(story_ids)
+    order, problem = _check_story_order(plan.ordered_stories, story_ids)
+    if order is None:
+        logger.warning("plan_story_order: model order rejected (%s); keeping document order", problem)
+        return _document_order(story_ids)
+    return order
