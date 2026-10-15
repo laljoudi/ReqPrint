@@ -34,6 +34,10 @@ rough idea to a solid first draft in minutes instead of days.
 - **Push to Jira** — one click turns the generated user stories into a real Jira
   project: an epic, dated sprints, and tasks ordered by dependency, created in your
   own Jira through OAuth 2.0.
+- **Sub-tasks, derived from the criteria** — optionally breaks each user story into Jira
+  sub-tasks derived from its acceptance criteria, each tagged by discipline (backend,
+  frontend, qa, design) as a label and parented to its story, so it follows that story
+  into its sprint.
 
 ## How It Works
 
@@ -53,8 +57,6 @@ rough idea to a solid first draft in minutes instead of days.
   so the shape of a five-section document is guaranteed, not just requested
 - **python-docx** — builds the exported `.docx` server-side
 - **Docker** — single multi-stage image (Node build stage + Python runtime)
-- **AWS ECS + ECR behind an ALB** — container hosting and registry
-- **GitHub Actions** — CI/CD, authenticating to AWS via short-lived OIDC credentials
 
 ## Engineering Highlights
 
@@ -77,16 +79,9 @@ five-section document assemble reliably instead of most of the time.
 **Single-image architecture.** The React frontend and the FastAPI backend are built into
 one multi-stage Docker image: a Node stage compiles the frontend to static files, and the
 final Python stage serves both that build and the API from a single process. This means
-the artifact running in production is byte-for-byte the same thing that runs locally —
+the artifact you deploy is byte-for-byte the same thing that runs locally —
 there's no separate frontend host, no CORS juggling between environments, and no "works on
 my machine" gap between dev and prod.
-
-**Automated deployment with no stored credentials.** Every push to `main` triggers a
-GitHub Actions workflow that builds the image, pushes it to a container registry, and
-rolls out the new version on AWS ECS. Crucially, the pipeline authenticates to AWS via
-OIDC — GitHub exchanges a short-lived token for temporary AWS credentials at run time — so
-there are **no long-lived AWS access keys stored** in the repository or CI secrets. Deploys
-are hands-off and the credential blast radius stays minimal.
 
 ## Architecture
 
@@ -101,6 +96,8 @@ lost to a page redirect. Once connected, a push runs these steps in order:
    of this fails, no epic, story, or sprint is created.
 2. **AI ordering** — the model puts the user stories in dependency order, with a one-line
    reason for each position. If its answer is unusable, the document's own order is used.
+   If sub-tasks were requested, a second, independent AI call plans them at the same time
+   (see step 7); only the ordering is allowed to fail the push.
 3. **Sprint math** — plain arithmetic: stories per sprint = weekly capacity × sprint
    length, sprint count = stories ÷ that, rounded up. Sprints run back to back from the
    chosen start date.
@@ -110,6 +107,15 @@ lost to a page redirect. Once connected, a push runs these steps in order:
 5. **Create the sprints** — one per block of stories, dated, and left in the future state.
 6. **Distribute** — each story is moved into its sprint one at a time, ranked after the
    previous one, so the order in Jira is the dependency order.
+7. **Create the sub-tasks (optional)** — last, once the stories and sprints exist. Each
+   sub-task is created as a real Jira sub-task under its story, in bulk: one call per 50
+   sub-tasks, so a 10-story push with 20 sub-tasks adds a single call. They are never
+   moved or ranked themselves; they follow their parent story into its sprint. If any
+   sub-task fails, or the AI's plan is unusable or unavailable, the stories and sprints
+   are untouched and the dialog says what was left out.
+
+Sprint math is unchanged by sub-tasks: capacity is counted in stories, never sub-tasks, so
+a push with sub-tasks has exactly the same sprints as one without.
 
 It spans two Jira API surfaces: the platform REST API (projects, issue types, issues) and
 the Agile API (boards, sprints, and moving issues into them). Each needs its own scopes,
@@ -134,10 +140,22 @@ fails afterwards, the rest proceed and the failure is reported with Jira's own r
 (When ReqPrint creates the project itself, that happens during preflight, so a failure
 right after it can leave an empty project — the dialog says so.)
 
+**Sub-tasks are derived, not invented.** A model asked to break a story into tasks will
+emit the same backend/frontend/QA template for every story, which carries no information.
+Instead each sub-task must cite an acceptance criterion from the document, and this is
+enforced in code, not just requested in the prompt: a sub-task citing nothing or an
+out-of-range criterion is rejected, and a story losing more than half its sub-tasks gets
+none. (The story text is used as the source only for a story that has no criteria at all.)
+The push response carries an audit trail showing which criterion each sub-task came from.
+Checked against the real model: 12 runs across two documents, one of them adversarial
+(server-only stories, a story with a single criterion, one with none, one in Arabic),
+189 sub-tasks in all, with zero rejected.
+
 ## Running Locally
 
-ReqPrint ships as a single Docker image that serves both the API and the built frontend on
-one port.
+ReqPrint is not currently hosted anywhere: you run it yourself. It ships as a single
+Docker image that serves both the API and the built frontend on one port, or you can run
+it with uvicorn directly.
 
 ```bash
 # 1. Clone
@@ -164,6 +182,20 @@ docker run --env-file .env -p 8000:8000 reqprint
 ```
 
 Then open **http://localhost:8000**.
+
+To run without Docker, build the frontend once and start the API with uvicorn (it reads
+the same `.env`):
+
+```bash
+pip install -r requirements.txt
+(cd frontend && npm ci && npm run build)
+uvicorn main:app --port 8000
+```
+
+> **Hosting.** An earlier version was deployed to AWS. That deployment has been retired,
+> and nothing in this README describes a live site. The repository still contains the old
+> GitHub Actions workflow for it (`.github/workflows/deploy.yml`); it targets the retired
+> deployment and is not part of running ReqPrint.
 
 > You'll need your own [Groq API key](https://console.groq.com/keys). The
 > key stays server-side — it's read by the backend and never exposed to the browser.
@@ -216,7 +248,8 @@ in the repository:
 
    The Agile API accepts no classic scopes, which is why both kinds are needed. A third
    scope, `offline_access`, is what makes refresh tokens possible; the app requests it at
-   sign-in and there is nothing to enable for it in the console.
+   sign-in and there is nothing to enable for it in the console. Sub-tasks need no
+   additional scope: the same 13 cover them.
 3. Under **Authorization**, add the callback URL for **OAuth 2.0 (3LO)**. Its format is
    your app's origin followed by `/api/jira/callback`:
    - locally: `http://localhost:8000/api/jira/callback`
@@ -259,5 +292,13 @@ the sign-in popup reports back to `FRONTEND_ORIGIN`, which is set to that origin
 - **The duplicate-push warning lives in `localStorage`,** so it is per-browser — pushing
   the same document from another browser or after clearing site data won't be flagged.
 - **A push is capped at 100 stories.**
+- **Sub-tasks following their parent story into its sprint is not confirmed by the API
+  definitions.** It is Jira's documented behavior, but Atlassian's published API
+  definitions don't state it, and it hasn't been checked against a live site. That is why
+  sub-tasks are never moved into a sprint themselves.
+- **After a partial bulk-create failure, returned keys are matched to requests by
+  order.** The API doesn't guarantee that. If the number of keys returned disagrees with
+  the number of sub-tasks that succeeded, the keys are left unattributed rather than
+  guessed.
 
 ## Screenshots
