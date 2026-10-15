@@ -39,7 +39,7 @@ export default function JiraPush({ data, description, category, jira, buttonClas
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState("");
   const [previous, setPrevious] = useState(null);
-  const [form, setForm] = useState({ name: "", startDate: "", weeks: DEFAULT_SPRINT_WEEKS, capacity: String(DEFAULT_CAPACITY) });
+  const [form, setForm] = useState({ name: "", startDate: "", weeks: DEFAULT_SPRINT_WEEKS, capacity: String(DEFAULT_CAPACITY), subtasks: true });
   const [submitting, setSubmitting] = useState(false);
   const [stage, setStage] = useState(0);
   const [error, setError] = useState(null);
@@ -70,6 +70,7 @@ export default function JiraPush({ data, description, category, jira, buttonClas
       startDate: todayLocalISO(),
       weeks: DEFAULT_SPRINT_WEEKS,
       capacity: String(DEFAULT_CAPACITY),
+      subtasks: true,
     });
     setError(null);
     setResult(null);
@@ -165,6 +166,7 @@ export default function JiraPush({ data, description, category, jira, buttonClas
         sprintLengthWeeks: form.weeks,
         startDate: form.startDate,
         category,
+        subtasks: form.subtasks,
         requirements: data,
       });
       setResult(pushed);
@@ -217,7 +219,7 @@ export default function JiraPush({ data, description, category, jira, buttonClas
       )}
 
       {step === "result" && result && (
-        <Modal title={result.failed?.length ? "Pushed to Jira, with some problems" : "Pushed to Jira"} onClose={close}>
+        <Modal title={result.failed?.length || result.subtasks_failed?.length ? "Pushed to Jira, with some problems" : "Pushed to Jira"} onClose={close}>
           <ResultView result={result} stories={stories} onClose={close} />
         </Modal>
       )}

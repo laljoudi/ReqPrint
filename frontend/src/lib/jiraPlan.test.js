@@ -6,6 +6,7 @@ import {
   hashDocument,
   parseCapacity,
   parseISODate,
+  previewParts,
   previewPlan,
   previewText,
   safeHttpUrl,
@@ -34,11 +35,40 @@ test("preview: sprints run back to back, so the end is start + sprints x length"
   assert.equal(plan({ capacity: 2, weeks: 2 }).end.toISOString(), "2026-12-05T00:00:00.000Z"); // 2 x 2 weeks
 });
 
-test("preview text matches the requested format", () => {
-  assert.equal(previewText(plan({ capacity: 1, weeks: 3 })), "7 stories · 3 sprints · 7 Nov → 9 Jan");
-  assert.equal(previewText(plan({ totalStories: 1 })), "1 story · 1 sprint · 7 Nov → 21 Nov");
+test("preview text matches the requested format, with the per-sprint figure", () => {
+  // the example from the brief: capacity 2 x 2-week sprints = 4 per sprint
+  assert.equal(previewText(plan({ totalStories: 8, capacity: 2, weeks: 2, startISO: "2026-11-07" })), "8 stories · 4 per sprint · 2 sprints · 7 Nov → 5 Dec");
+  assert.equal(previewText(plan({ capacity: 1, weeks: 3 })), "7 stories · 3 per sprint · 3 sprints · 7 Nov → 9 Jan");
+  assert.equal(previewText(plan({ totalStories: 1 })), "1 story · 6 per sprint · 1 sprint · 7 Nov → 21 Nov"); // 3/week x 2 weeks
   assert.equal(previewText(plan({ totalStories: 0 })), "0 stories");
-  assert.equal(previewText(plan({ startISO: "2026-09-01", totalStories: 1, capacity: 1, weeks: 1 })), "1 story · 1 sprint · 1 Sep → 8 Sep");
+  assert.equal(previewText(plan({ startISO: "2026-09-01", totalStories: 1, capacity: 1, weeks: 1 })), "1 story · 1 per sprint · 1 sprint · 1 Sep → 8 Sep");
+});
+
+test("preview text: the per-sprint figure is always capacity x sprint length", () => {
+  for (const capacity of [1, 2, 3, 7, 25, 50]) {
+    for (const weeks of [1, 2, 3, 4]) {
+      const text = previewText(plan({ totalStories: 9, capacity, weeks }));
+      assert.ok(text.includes(` · ${capacity * weeks} per sprint · `), `${capacity} x ${weeks}: ${text}`);
+    }
+  }
+});
+
+test("preview text: parts appear in order and the sprint count still follows the per-sprint figure", () => {
+  for (const [stories, capacity, weeks] of [[8, 2, 2], [7, 3, 2], [7, 1, 3], [100, 1, 1], [13, 2, 3], [3, 50, 4]]) {
+    const p = plan({ totalStories: stories, capacity, weeks });
+    const m = /^(\d+) stories? · (\d+) per sprint · (\d+) sprints? · \d+ [A-Z][a-z]{2} → \d+ [A-Z][a-z]{2}$/.exec(previewText(p));
+    assert.ok(m, previewText(p));
+    assert.deepEqual([Number(m[1]), Number(m[2]), Number(m[3])], [stories, capacity * weeks, Math.ceil(stories / (capacity * weeks))]);
+  }
+});
+
+test("preview parts: the pieces the dialog keeps on one line each, joined = the preview text", () => {
+  assert.deepEqual(previewParts(plan({ totalStories: 8, capacity: 2, weeks: 2 })), ["8 stories", "4 per sprint", "2 sprints", "7 Nov → 5 Dec"]);
+  assert.deepEqual(previewParts(plan({ totalStories: 1 })), ["1 story", "6 per sprint", "1 sprint", "7 Nov → 21 Nov"]);
+  assert.deepEqual(previewParts(plan({ totalStories: 0 })), ["0 stories"]);
+  for (const over of [{}, { capacity: 1, weeks: 3 }, { totalStories: 100, capacity: 1, weeks: 1 }, { totalStories: 0 }]) {
+    assert.equal(previewParts(plan(over)).join(" · "), previewText(plan(over)));
+  }
 });
 
 test("preview handles past dates, leap days and month/year boundaries", () => {

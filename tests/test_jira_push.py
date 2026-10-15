@@ -11,6 +11,7 @@ from unittest import mock
 
 import httpx
 from cryptography.fernet import Fernet
+from groq import RateLimitError
 
 # main/jira_oauth fail fast without these; fake values are fine, and setdefault
 # leaves any real ones alone.
@@ -58,6 +59,11 @@ class FakeJira:
         self.reject_issue = lambda fields: None     # -> (status, body) | None
         self.reject_sprint = lambda body: None
         self.echo_dates = True
+        self.types = TYPES
+        self.requests = []     # every call that reached Jira's API (not the token endpoint), in order
+        self.reject_bulk_element = lambda fields: None   # -> (status, {field: message}) | None
+        self.bulk_failure = None                          # (status, body) answering a whole bulk call
+        self.bulk_issues_override = None                  # replaces the "issues" list in a bulk answer
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -70,6 +76,7 @@ class FakeJira:
             return httpx.Response(200, json={"access_token": f"AT-{self.n}", "refresh_token": f"RT-{self.n}"})
         sub = path[len(f"/ex/jira/{CLOUD}"):]
         body = json.loads(request.content) if request.content else None
+        self.requests.append((request.method, re.sub(r"/\d{2,}(?=/|$)", "/{id}", sub)))   # ids, not the API version
         if sub == "/rest/api/3/myself":
             return httpx.Response(200, json={"accountId": "acct-1"})
         if sub == "/rest/api/3/project" and request.method == "POST":
@@ -77,7 +84,7 @@ class FakeJira:
         if sub == "/rest/agile/1.0/board":
             return httpx.Response(200, json={"values": [{"id": 7, "type": "scrum"}]})
         if sub.endswith("/issuetypes") and "createmeta" in sub:
-            return httpx.Response(200, json={"issueTypes": TYPES, "total": len(TYPES)})
+            return httpx.Response(200, json={"issueTypes": self.types, "total": len(self.types)})
         if "/createmeta/" in sub and "/issuetypes/" in sub:
             return httpx.Response(200, json={"fields": [{"fieldId": "summary", "name": "Summary"}], "total": 1})
         if sub == "/rest/api/3/issue" and request.method == "POST":
@@ -90,6 +97,27 @@ class FakeJira:
             key = f"{fields['project']['key']}-{self.issue_n}"
             self.issues[key] = fields
             return httpx.Response(201, json={"id": str(10000 + self.issue_n), "key": key})
+        if sub == "/rest/api/3/issue/bulk" and request.method == "POST":
+            elements = body["issueUpdates"]
+            assert len(elements) <= 50, "Atlassian's limit is 50 per bulk call"
+            self.calls.append(("bulk", len(elements)))
+            if self.bulk_failure:
+                return httpx.Response(self.bulk_failure[0], json=self.bulk_failure[1])
+            issues, errors = [], []
+            for index, element in enumerate(elements):
+                fields = element["fields"]
+                rejection = self.reject_bulk_element(fields)
+                if rejection:
+                    errors.append({"status": rejection[0], "elementErrors": {"errorMessages": [], "errors": rejection[1]}, "failedElementNumber": index})
+                    continue
+                self.issue_n += 1
+                key = f"{fields['project']['key']}-{self.issue_n}"
+                self.issues[key] = fields
+                issues.append({"id": str(10000 + self.issue_n), "key": key, "self": "x"})
+            if self.bulk_issues_override is not None:
+                issues = self.bulk_issues_override
+            # Atlassian: 201 if any element was created, 400 (same body shape) if all were invalid.
+            return httpx.Response(201 if issues else 400, json={"issues": issues, "errors": errors})
         if sub == "/rest/agile/1.0/sprint" and request.method == "POST":
             self.calls.append(("sprint", "startDate" in body))
             rejection = self.reject_sprint(body)
@@ -138,10 +166,32 @@ class PushTestCase(unittest.TestCase):
             self.addCleanup(p.stop)
         main.limiter.reset()
 
-    @staticmethod
-    def fake_groq(prompt, message, schema):
+    sub_mode = "ok"   # "ok" | "unknown_story" | "too_many" | "quota" | "half_uncited" | "uncited" | "out_of_range"
+    ai_calls = None
+
+    def fake_groq(self, prompt, message, schema):
+        self.ai_calls = (self.ai_calls or []) + [schema.__name__]
+        if schema is ai.SubtaskPlan:
+            return self.fake_subtasks(json.loads(message))
         ids = [s["id"] for s in json.loads(message)]
         return ai.StoryOrderPlan(ordered_stories=[ai.StoryOrderItem(story_id=i, reason="r", depends_on=[]) for i in ids])
+
+    def fake_subtasks(self, stories):
+        """Two sub-tasks per story, both from the story's first criterion (a story with no criteria cites none).
+        The modes break the rule on purpose: "half_uncited" makes the second cite nothing, "uncited" both,
+        "out_of_range" both cite a criterion the story doesn't have."""
+        if self.sub_mode == "quota":
+            raise RateLimitError("slow down", response=httpx.Response(429, request=httpx.Request("POST", "https://api.groq.com/x")), body=None)
+        out = []
+        for st in stories:
+            n = 6 if self.sub_mode == "too_many" else 2
+            cite = 0 if st["criteria"] else None
+            first = {"uncited": None, "out_of_range": 5}.get(self.sub_mode, cite)
+            rest = {"uncited": None, "half_uncited": None, "out_of_range": 5}.get(self.sub_mode, cite)
+            items = [ai.SubtaskItem(title=f"Backend work for {st['id']}", discipline="backend", criterion_index=first)]
+            items += [ai.SubtaskItem(title=f"Frontend work {k} for {st['id']}", discipline="frontend", criterion_index=rest) for k in range(n - 1)]
+            out.append(ai.StorySubtasks(story_id="NOPE" if self.sub_mode == "unknown_story" else st["id"], subtasks=items))
+        return ai.SubtaskPlan(stories=out)
 
     def push(self, body):
         client = TestClient(main.app, base_url="http://localhost:8000")
@@ -417,6 +467,335 @@ class StartDateAndSprintLength(PushTestCase):
         self.assertEqual(data["labels"], ["reqprint", "hr-tech"])
         for sprint in data["sprints"]:
             self.assertTrue({"id", "name", "story_ids", "start_date", "end_date", "dates_set"} <= set(sprint))
+
+
+SUBTASK_TYPE_ID = "10004"   # the "Sub-task" entry in TYPES
+
+
+class SubTasks(PushTestCase):
+    """Stage 5: each story broken into real sub-tasks, parented to it. Off unless asked."""
+
+    def subtasks(self):
+        return {k: f for k, f in self.jira.issues.items() if f["issuetype"]["id"] == SUBTASK_TYPE_ID}
+
+    def go(self, n=7, **extra):
+        return self.push(request_body(n=n, create_subtasks=True, **extra))
+
+    # ---- off by default: exactly the push that existed before
+    def test_off_by_default_nothing_changes(self):
+        data = self.push(request_body()).json()
+        self.assertEqual(self.subtasks(), {})
+        self.assertNotIn(("POST", "/rest/api/3/issue/bulk"), self.jira.requests)
+        self.assertNotIn("SubtaskPlan", self.ai_calls or [])
+        self.assertEqual((data["subtasks_requested"], data["subtasks_created"], data["subtasks_failed"], data["subtask_keys"], data["subtasks_skipped"]), (False, 0, [], {}, []))
+        self.assertEqual((data["subtask_details"], data["subtasks_rejected"]), ([], []))
+        self.assertEqual((data["stories_created"], data["sprint_count"], data["failed"]), (7, 2, []))
+
+    def test_explicit_false_is_the_same_as_off(self):
+        a = self.push(request_body()).json()
+        self.setUp()
+        b = self.push(request_body(create_subtasks=False)).json()
+        self.assertEqual({k: v for k, v in a.items()}, {k: v for k, v in b.items()})
+
+    def test_the_flag_must_be_a_real_boolean(self):
+        for bad in ("yes", "true", 1, 0, None, []):
+            self.setUp()
+            r = self.push(request_body(create_subtasks=bad))
+            self.assertEqual(r.status_code, 422, repr(bad))
+            self.assertEqual(self.jira.calls, [])
+
+    # ---- on: real sub-tasks under their stories
+    def test_creates_real_subtasks_parented_to_their_stories_in_one_bulk_call(self):
+        r = self.go()
+        data = r.json()
+        self.assertEqual(r.status_code, 200)
+        subs = self.subtasks()
+        self.assertEqual(len(subs), 14)  # 2 per story
+        self.assertEqual(data["subtasks_created"], 14)
+        self.assertEqual(data["subtasks_failed"], [])
+        self.assertEqual([c for c in self.jira.calls if c[0] == "bulk"], [("bulk", 14)])
+        for key, fields in subs.items():
+            self.assertEqual(fields["issuetype"], {"id": SUBTASK_TYPE_ID})
+            self.assertIn(fields["parent"]["key"], data["issue_keys"].values())   # a story, never the epic
+            self.assertNotEqual(fields["parent"]["key"], data["epic_key"])
+        self.assertEqual(set(data["subtask_keys"]), set(data["issue_keys"]))      # every story has some, keyed by story id
+        for story_id, keys in data["subtask_keys"].items():
+            self.assertEqual(len(keys), 2)
+            self.assertTrue(all(subs[k]["parent"]["key"] == data["issue_keys"][story_id] for k in keys))
+        self.assertEqual(data["subtasks_requested"], True)
+        self.assertEqual((data["subtasks_skipped"], data["subtasks_rejected"]), ([], []))
+
+    def test_each_subtask_has_its_title_labels_and_a_quote_of_its_criterion(self):
+        data = self.go(category="HR Tech").json()
+        story_key = data["issue_keys"]["US-02"]
+        mine = {k: f for k, f in self.subtasks().items() if f["parent"]["key"] == story_key}
+        backend = next(f for f in mine.values() if f["summary"].startswith("Backend work"))
+        frontend = next(f for f in mine.values() if f["summary"].startswith("Frontend work"))
+        self.assertEqual(backend["labels"], ["reqprint", "hr-tech", "backend"])
+        self.assertEqual(frontend["labels"], ["reqprint", "hr-tech", "frontend"])
+        quote = json.dumps(backend["description"])        # came from criterion 0 of US-02
+        self.assertIn("Acceptance criterion:", quote)
+        self.assertIn("S2", quote)                                         # the criterion's own scenario name
+        self.assertTrue(all(label in quote for label in ("Given", "When", "Then")))
+        self.assertIn("Acceptance criterion:", json.dumps(frontend["description"]))   # it cites a criterion too: never the story text
+        self.assertNotIn("From the story:", json.dumps(frontend["description"]))
+
+    def test_a_story_with_no_criteria_quotes_the_story_text(self):
+        body = request_body(n=3, create_subtasks=True)
+        body["requirements"]["acceptance_criteria"] = [c for c in body["requirements"]["acceptance_criteria"] if c["story_id"] != "US-02"]
+        data = self.push(body).json()
+        story_key = data["issue_keys"]["US-02"]
+        mine = [f for f in self.subtasks().values() if f["parent"]["key"] == story_key]
+        self.assertEqual(len(mine), 2)
+        for f in mine:
+            self.assertIn("From the story:", json.dumps(f["description"]))
+            self.assertIn(story(2)["story"], json.dumps(f["description"]))
+        self.assertEqual(data["subtasks_rejected"], [])
+        rows = [r for r in data["subtask_details"] if r["story_id"] == "US-02"]
+        self.assertEqual([(r["source"], r["criterion_index"], r["criterion_scenario"]) for r in rows], [("story", None, None)] * 2)
+
+    def test_without_a_category_the_labels_are_reqprint_plus_the_discipline(self):
+        self.go()
+        self.assertTrue(all(f["labels"] in (["reqprint", "backend"], ["reqprint", "frontend"]) for f in self.subtasks().values()))
+
+    def test_capacity_and_the_sprint_math_still_count_stories_only(self):
+        without = self.push(request_body(n=10)).json()
+        self.setUp()
+        with_sub = self.push(request_body(n=10, create_subtasks=True)).json()
+        for field in ("sprint_count", "stories_created", "order", "start_date", "sprint_length_weeks"):
+            self.assertEqual(without[field], with_sub[field], field)
+        self.assertEqual([s["story_ids"] for s in without["sprints"]], [s["story_ids"] for s in with_sub["sprints"]])
+        self.assertEqual([(s["start_date"], s["end_date"]) for s in without["sprints"]], [(s["start_date"], s["end_date"]) for s in with_sub["sprints"]])
+        self.assertEqual(with_sub["subtasks_created"], 20)    # 20 sub-tasks did not change the sprint size:
+        self.assertEqual([len(s["story_ids"]) for s in with_sub["sprints"]], [4, 4, 2])   # capacity 2/week x 2 weeks = 4 stories each
+
+    def test_subtasks_are_never_moved_into_a_sprint_or_ranked(self):
+        data = self.go().json()
+        moved = [c[1] for c in self.jira.calls if c[0] == "move"]
+        self.assertEqual(sorted(moved), sorted(data["issue_keys"].values()))     # stories only
+        self.assertTrue(set(moved).isdisjoint(self.subtasks()))
+        self.assertEqual(sum(1 for m, p in self.jira.requests if "/rank" in p), 0)
+
+    def test_subtasks_come_last_after_the_stories_and_sprints(self):
+        self.go()
+        kinds = [c[0] for c in self.jira.calls]
+        self.assertEqual(kinds[-1], "bulk")
+        self.assertLess(max(i for i, k in enumerate(kinds) if k == "move"), kinds.index("bulk"))
+        self.assertLess(max(i for i, k in enumerate(kinds) if k == "issue"), kinds.index("bulk"))
+
+    def test_one_ai_call_for_ordering_and_one_for_subtasks(self):
+        self.go()
+        self.assertEqual(sorted(self.ai_calls), ["StoryOrderPlan", "SubtaskPlan"])
+
+    def test_the_ai_is_sent_each_story_with_only_its_own_criteria(self):
+        sent = []
+        def spy(prompt, message, schema):
+            if schema is ai.SubtaskPlan:
+                sent.append(json.loads(message))
+            return self.fake_groq(prompt, message, schema)
+        with mock.patch.object(ai, "_structured_chat", spy):
+            self.go(n=3)
+        self.assertEqual([s["id"] for s in sent[0]], ["US-01", "US-02", "US-03"])
+        self.assertEqual([[c["scenario"] for c in s["criteria"]] for s in sent[0]], [["S1"], ["S2"], ["S3"]])
+
+    # ---- the project can't have sub-tasks
+    def test_no_subtask_type_skips_them_and_everything_else_is_created(self):
+        self.jira.types = [t for t in TYPES if not t["subtask"]]
+        r = self.go()
+        data = r.json()
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(data["subtasks_skipped"], [{"story_id": None, "reason": "no_subtask_type", "detail": None}])
+        self.assertEqual((data["subtasks_created"], data["subtasks_failed"], data["subtask_keys"]), (0, [], {}))
+        self.assertEqual((data["stories_created"], data["sprint_count"], data["failed"]), (7, 2, []))
+        self.assertNotIn("SubtaskPlan", self.ai_calls or [])      # no AI call wasted on work that can't be created
+        self.assertNotIn(("POST", "/rest/api/3/issue/bulk"), self.jira.requests)
+
+    # ---- the derivation rule, enforced in code
+    def test_every_created_subtask_is_listed_with_the_criterion_it_came_from(self):
+        data = self.go(n=3).json()
+        rows = data["subtask_details"]
+        self.assertEqual(len(rows), 6)
+        all_keys = {k for ks in data["subtask_keys"].values() for k in ks}
+        self.assertEqual({r["key"] for r in rows}, all_keys)
+        for r in rows:
+            n = int(r["story_id"][-2:])
+            self.assertEqual((r["source"], r["criterion_index"], r["criterion_scenario"]), ("criterion", 0, f"S{n}"))
+            self.assertEqual((r["created"], r["error"], r["story_key"]), (True, None, data["issue_keys"][r["story_id"]]))
+            self.assertIn(r["discipline"], ("backend", "frontend"))
+
+    def test_the_audit_row_of_a_failed_subtask_says_so(self):
+        self.jira.reject_bulk_element = lambda f: (400, {"summary": "Nope."}) if f["summary"].startswith("Frontend") and "US-03" in f["summary"] else None
+        rows = self.go().json()["subtask_details"]
+        bad = [r for r in rows if not r["created"]]
+        self.assertEqual(len(bad), 1)
+        self.assertEqual((bad[0]["story_id"], bad[0]["key"], bad[0]["criterion_index"]), ("US-03", None, 0))
+        self.assertIn("Nope.", bad[0]["error"])
+        self.assertEqual(len(rows), 14)
+
+    def test_a_subtask_that_cites_nothing_is_rejected_and_never_reaches_jira(self):
+        self.sub_mode = "half_uncited"      # per story: one cites criterion 0, one cites nothing
+        with self.assertLogs(ai.logger, "WARNING"):
+            data = self.go(n=3).json()
+        self.assertEqual(data["subtasks_created"], 3)                      # one per story survives; 1 of 2 is not "more than half"
+        self.assertEqual(sorted(r["story_id"] for r in data["subtasks_rejected"]), ["US-01", "US-02", "US-03"])
+        self.assertTrue(all(r["reason"] == "cited no acceptance criterion" and r["title"].startswith("Frontend") for r in data["subtasks_rejected"]))
+        self.assertEqual(data["subtasks_skipped"], [])
+        self.assertTrue(all(f["summary"].startswith("Backend") for f in self.subtasks().values()))   # nothing invented in Jira
+        self.assertNotIn("From the story:", json.dumps([f["description"] for f in self.subtasks().values()]))
+        self.assertEqual((data["stories_created"], data["failed"]), (3, []))
+
+    def test_more_than_half_rejected_drops_the_whole_story_and_reports_it(self):
+        self.sub_mode = "uncited"
+        with self.assertLogs(ai.logger, "WARNING"):
+            data = self.go(n=3).json()
+        self.assertEqual((data["subtasks_created"], self.subtasks()), (0, {}))
+        self.assertEqual([(d["story_id"], d["reason"]) for d in data["subtasks_skipped"]], [(f"US-0{i}", "criterion_citation") for i in (1, 2, 3)])
+        self.assertIn("2 of its 2 sub-tasks", data["subtasks_skipped"][0]["detail"])
+        self.assertEqual(len(data["subtasks_rejected"]), 6)
+        self.assertEqual(data["subtask_details"], [])
+        self.assertEqual((data["stories_created"], data["sprint_count"], data["failed"]), (3, 1, []))
+        self.assertNotIn(("POST", "/rest/api/3/issue/bulk"), self.jira.requests)     # nothing to send
+
+    def test_an_out_of_range_index_is_rejected_the_same_way(self):
+        self.sub_mode = "out_of_range"
+        with self.assertLogs(ai.logger, "WARNING"):
+            data = self.go(n=2).json()
+        self.assertEqual(data["subtasks_created"], 0)
+        self.assertIn("cited criterion 5, but this story only has criteria 0-0", data["subtasks_rejected"][0]["reason"])
+        self.assertEqual({d["reason"] for d in data["subtasks_skipped"]}, {"criterion_citation"})
+
+    # ---- the AI part can fail without touching the push
+    def test_an_invalid_ai_answer_skips_subtasks_and_the_push_succeeds(self):
+        self.sub_mode = "unknown_story"
+        with self.assertLogs(ai.logger, "WARNING"):
+            data = self.go().json()
+        self.assertEqual(data["subtasks_skipped"], [{"story_id": None, "reason": "invalid_ai_output", "detail": None}])
+        self.assertEqual((data["stories_created"], data["sprint_count"], data["failed"]), (7, 2, []))
+        self.assertEqual(self.subtasks(), {})
+
+    def test_too_many_subtasks_for_a_story_is_a_validation_failure(self):
+        self.sub_mode = "too_many"
+        with self.assertLogs(ai.logger, "WARNING"):
+            data = self.go().json()
+        self.assertEqual(data["subtasks_skipped"][0]["reason"], "invalid_ai_output")
+        self.assertEqual(data["stories_created"], 7)
+
+    def test_the_ai_being_unavailable_skips_subtasks_but_not_the_push(self):
+        self.sub_mode = "quota"
+        with self.assertLogs(jira_push.logger, "WARNING"):
+            r = self.go()
+        data = r.json()
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(data["subtasks_skipped"], [{"story_id": None, "reason": "ai_unavailable", "detail": None}])
+        self.assertEqual((data["stories_created"], data["sprint_count"], data["failed"]), (7, 2, []))
+
+    def test_a_failure_of_the_story_ordering_still_fails_the_push_as_before(self):
+        def only_ordering_fails(prompt, message, schema):
+            if schema is ai.StoryOrderPlan:
+                raise RateLimitError("slow down", response=httpx.Response(429, request=httpx.Request("POST", "https://api.groq.com/x")), body=None)
+            return self.fake_groq(prompt, message, schema)
+        with mock.patch.object(ai, "_structured_chat", only_ordering_fails):
+            r = self.go()
+        self.assertEqual((r.status_code, r.json()["detail"]), (503, "quota_exhausted"))
+        self.assertEqual([c for c in self.jira.calls if c[0] in ("issue", "sprint", "move", "bulk")], [])
+
+    # ---- Jira rejecting some or all sub-tasks never touches stories
+    def test_some_subtasks_rejected_the_rest_created_and_stories_untouched(self):
+        self.jira.reject_bulk_element = lambda f: (400, {"summary": "Summary is too long."}) if f["summary"].startswith("Frontend") and "US-03" in f["summary"] else None
+        data = self.go().json()
+        self.assertEqual((data["subtasks_created"], len(data["subtasks_failed"])), (13, 1))
+        failure = data["subtasks_failed"][0]
+        self.assertEqual(failure["story_id"], "US-03")
+        self.assertIn("Summary is too long.", failure["reason"])
+        self.assertTrue(failure["title"].startswith("Frontend work"))
+        self.assertEqual(len(data["subtask_keys"]["US-03"]), 1)          # its other sub-task made it
+        self.assertEqual((data["stories_created"], data["sprint_count"], data["failed"]), (7, 2, []))
+        self.assertEqual(len(self.subtasks()), 13)
+        for story_id, keys in data["subtask_keys"].items():          # the keys reported really belong to that story
+            self.assertTrue(all(self.jira.issues[k]["parent"]["key"] == data["issue_keys"][story_id] for k in keys), story_id)
+
+    def test_every_subtask_rejected_is_reported_per_subtask_and_the_push_still_succeeds(self):
+        self.jira.reject_bulk_element = lambda f: (400, {"parent": "The parent issue can't have sub-tasks."})
+        r = self.go()
+        data = r.json()
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual((data["subtasks_created"], len(data["subtasks_failed"]), data["subtask_keys"]), (0, 14, {}))
+        self.assertTrue(all("The parent issue can't have sub-tasks." in f["reason"] and f["title"] and f["story_id"] for f in data["subtasks_failed"]))
+        self.assertEqual((data["stories_created"], data["sprint_count"], data["failed"]), (7, 2, []))
+
+    def test_labels_jira_refuses_never_fail_a_subtask(self):
+        self.jira.reject_bulk_element = lambda f: (400, {"labels": "Field 'labels' cannot be set."}) if "labels" in f else None
+        data = self.go().json()
+        self.assertEqual((data["subtasks_created"], data["subtasks_failed"]), (14, []))
+        self.assertTrue(all("labels" not in f for f in self.subtasks().values()))
+        entries = [e for e in data["labels_failed"] if e.get("kind") == "subtask"]
+        self.assertEqual(len(entries), 14)
+        self.assertTrue(all(e["issue_key"] in self.subtasks() and e["story_id"] for e in entries))
+        self.assertEqual([c for c in self.jira.calls if c[0] == "bulk"], [("bulk", 14), ("bulk", 14)])   # one retry, not one per sub-task
+
+    def test_more_than_fifty_subtasks_use_more_than_one_call_never_over_fifty(self):
+        data = self.push(request_body(n=30, create_subtasks=True)).json()        # 60 sub-tasks
+        self.assertEqual(data["subtasks_created"], 60)
+        self.assertEqual([c[1] for c in self.jira.calls if c[0] == "bulk"], [50, 10])
+
+    def test_the_subtasks_of_a_story_that_was_not_created_are_reported_not_attempted(self):
+        self.jira.reject_issue = lambda f: (400, {"description": "bad"}) if f["summary"].startswith("As a user 3,") else None
+        data = self.go().json()
+        self.assertEqual([f["story_id"] for f in data["failed"]], ["US-03"])
+        missing = [f for f in data["subtasks_failed"] if f["story_id"] == "US-03"]
+        self.assertEqual(len(missing), 2)
+        self.assertTrue(all(f["reason"] == "Its story wasn't created." for f in missing))
+        self.assertEqual(data["subtasks_created"], 12)
+        self.assertNotIn("US-03", data["subtask_keys"])
+
+    def test_a_failure_that_would_hit_every_call_is_reported_and_the_push_still_succeeds(self):
+        for status in (401, 429):
+            self.setUp()
+            self.jira.bulk_failure = (status, {"message": "nope"})
+            r = self.go()
+            data = r.json()
+            self.assertEqual(r.status_code, 200, status)
+            self.assertEqual((data["subtasks_created"], len(data["subtasks_failed"])), (0, 14), status)
+            self.assertEqual((data["stories_created"], data["failed"]), (7, []), status)
+            self.assertEqual(self.cookie_after["refresh_token"], "RT-1")
+
+    def test_an_earlier_systemic_failure_means_no_subtask_calls_at_all(self):
+        self.jira.reject_sprint = lambda b: (429, {"message": "slow down"})
+        data = self.go().json()
+        self.assertNotIn(("POST", "/rest/api/3/issue/bulk"), self.jira.requests)
+        self.assertTrue(data["subtasks_failed"] and all(f["reason"].startswith("Not attempted") for f in data["subtasks_failed"]))
+
+    def test_keys_are_not_guessed_when_jira_answers_with_a_different_number_of_issues(self):
+        self.jira.bulk_issues_override = [{"id": "1", "key": "LBS-900", "self": "x"}]
+        with self.assertLogs("jira_client", "WARNING"):
+            data = self.go().json()
+        self.assertEqual(data["subtask_keys"], {})                # no key is attributed to the wrong story
+        self.assertEqual(data["subtasks_failed"], [])
+
+    def test_a_dropped_connection_while_creating_subtasks_does_not_fail_the_push(self):
+        handler = self.jira
+
+        def drop_the_bulk_call(request):
+            if request.url.path.endswith("/issue/bulk"):
+                raise httpx.ConnectError("boom")
+            return handler(request)
+
+        with mock.patch.object(httpx, "AsyncClient", lambda **kw: REAL_ASYNC_CLIENT(transport=httpx.MockTransport(drop_the_bulk_call), **kw)):
+            r = self.go()
+        data = r.json()
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual((data["subtasks_created"], len(data["subtasks_failed"])), (0, 14))
+        self.assertEqual((data["stories_created"], data["failed"]), (7, []))
+
+    # ---- how many calls does it cost?
+    def test_sub_tasks_cost_one_extra_jira_call_for_up_to_fifty_of_them(self):
+        self.push(request_body(n=10))
+        before = len(self.jira.requests)
+        self.setUp()
+        self.push(request_body(n=10, create_subtasks=True))
+        after = len(self.jira.requests)
+        self.assertEqual(after - before, 1)
+        self.assertEqual(self.jira.requests[-1], ("POST", "/rest/api/3/issue/bulk"))
 
 
 if __name__ == "__main__":

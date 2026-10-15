@@ -70,12 +70,24 @@ export function previewPlan({ totalStories, capacity, weeks, startISO }) {
   };
 }
 
-// "7 stories · 3 sprints · 7 Nov → 9 Jan"
-export function previewText(plan) {
+// The preview as separate parts, so the dialog can keep each one on a single line:
+// ["8 stories", "4 per sprint", "2 sprints", "7 Nov → 5 Dec"].
+// The per-sprint figure is capacity x sprint length (a weekly capacity of 2 over 2-week
+// sprints is 4 per sprint) - shown so that product isn't a surprise.
+export function previewParts(plan) {
   const stories = `${plan.totalStories} ${plan.totalStories === 1 ? "story" : "stories"}`;
-  if (plan.sprints === 0) return stories;
-  const sprints = `${plan.sprints} ${plan.sprints === 1 ? "sprint" : "sprints"}`;
-  return `${stories} · ${sprints} · ${formatDayMonth(plan.start)} → ${formatDayMonth(plan.end)}`;
+  if (plan.sprints === 0) return [stories];
+  return [
+    stories,
+    `${plan.perSprint} per sprint`,
+    `${plan.sprints} ${plan.sprints === 1 ? "sprint" : "sprints"}`,
+    `${formatDayMonth(plan.start)} → ${formatDayMonth(plan.end)}`,
+  ];
+}
+
+// "8 stories · 4 per sprint · 2 sprints · 7 Nov → 5 Dec"
+export function previewText(plan) {
+  return previewParts(plan).join(" · ");
 }
 
 // ---------- the form ----------

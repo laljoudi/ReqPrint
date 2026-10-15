@@ -5,7 +5,7 @@ import asyncio
 import os
 from datetime import date
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, HTTPException, Request
@@ -24,8 +24,10 @@ from ai import (
     review_requirements,
     extract_from_notes,
     plan_story_order,
+    plan_subtasks,
+    GeneratedRequirements,
 )
-from export import build_docx
+from export import build_docx, validate_docx_data
 from jira_client import TokenRefreshError, refresh_access_token
 from jira_push import MAX_STORIES, run_push
 from sprint_plan import MAX_SPRINT_LENGTH_WEEKS, MIN_SPRINT_LENGTH_WEEKS, parse_start_date
@@ -61,65 +63,80 @@ api = APIRouter(prefix="/api")
 
 # ---------- Request/response models ----------
 
+MAX_DESCRIPTION_CHARS = 20_000
+MAX_RAW_NOTES_CHARS = 30_000
+MAX_INSTRUCTION_CHARS = 4_000
+MAX_QA_ITEMS = 8
+MAX_QA_QUESTION_CHARS = 600
+MAX_QA_ANSWER_CHARS = 4_000
+MAX_REQUIREMENT_TEXT_CHARS = 1_500
+MAX_REQUIREMENT_ITEMS = 100
+MAX_ACCEPTANCE_CRITERIA = 300
+MAX_ASSUMPTIONS = 100
+
+RequirementText = Annotated[str, Field(min_length=1, max_length=MAX_REQUIREMENT_TEXT_CHARS)]
+OptionalRequirementText = Annotated[str, Field(max_length=MAX_REQUIREMENT_TEXT_CHARS)]
+
+
 class QAItem(BaseModel):
-    q: str
-    a: str
+    q: str = Field(max_length=MAX_QA_QUESTION_CHARS)
+    a: str = Field(max_length=MAX_QA_ANSWER_CHARS)
 
 
 class NextQuestionRequest(BaseModel):
-    description: str
-    qa_history: list[QAItem] = []
+    description: str = Field(min_length=1, max_length=MAX_DESCRIPTION_CHARS)
+    qa_history: list[QAItem] = Field(default_factory=list, max_length=MAX_QA_ITEMS)
 
 
 class GenerateRequest(BaseModel):
-    description: str
-    qa_history: list[QAItem] = []
+    description: str = Field(min_length=1, max_length=MAX_DESCRIPTION_CHARS)
+    qa_history: list[QAItem] = Field(default_factory=list, max_length=MAX_QA_ITEMS)
 
 
 class ReviseRequest(BaseModel):
-    data: dict
-    instruction: str
+    data: GeneratedRequirements
+    instruction: str = Field(min_length=1, max_length=MAX_INSTRUCTION_CHARS)
 
 
 class ReviewRequest(BaseModel):
-    description: str
-    qa_history: list[QAItem] = []
-    data: dict
+    description: str = Field(min_length=1, max_length=MAX_DESCRIPTION_CHARS)
+    qa_history: list[QAItem] = Field(default_factory=list, max_length=MAX_QA_ITEMS)
+    data: GeneratedRequirements
 
 
 class ExtractNotesRequest(BaseModel):
-    raw_notes: str
+    raw_notes: str = Field(min_length=1, max_length=MAX_RAW_NOTES_CHARS)
 
 
 class PushStory(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     id: str = Field(min_length=1, max_length=50)
-    role: str = ""
-    story: str = Field(min_length=1)
+    role: OptionalRequirementText = ""
+    story: RequirementText
 
 
 class PushCriterion(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
-    story_id: str = ""
-    scenario: str = ""
-    given: str = ""
-    when: str = ""
-    then: str = ""
+    story_id: str = Field(default="", max_length=50)
+    scenario: OptionalRequirementText = ""
+    given: OptionalRequirementText = ""
+    when: OptionalRequirementText = ""
+    then: OptionalRequirementText = ""
 
 
 class PushRequirementLists(BaseModel):
-    functional: list[str] = []
-    non_functional: list[str] = []
+    functional: list[RequirementText] = Field(default_factory=list, max_length=MAX_REQUIREMENT_ITEMS)
+    non_functional: list[RequirementText] = Field(default_factory=list, max_length=MAX_REQUIREMENT_ITEMS)
 
 
 class PushDocument(BaseModel):
     """The parts of the generated requirements document a Jira push uses.
     Anything else in the document (e.g. use_cases) is accepted and ignored."""
 
-    requirements: PushRequirementLists = PushRequirementLists()
+    requirements: PushRequirementLists = Field(default_factory=PushRequirementLists)
     user_stories: list[PushStory] = Field(min_length=1, max_length=MAX_STORIES)
-    acceptance_criteria: list[PushCriterion] = []
-    assumptions: list[str] = []
+    acceptance_criteria: list[PushCriterion] = Field(default_factory=list, max_length=MAX_ACCEPTANCE_CRITERIA)
+    assumptions: list[RequirementText] = Field(default_factory=list, max_length=MAX_ASSUMPTIONS)
 
     @model_validator(mode="after")
     def story_ids_are_unique(self):
@@ -138,6 +155,7 @@ class JiraPushRequest(BaseModel):
     category: str | None = Field(default=None, max_length=80)
     start_date: date | None = None  # "YYYY-MM-DD"; omitted -> sprint 1 starts today
     sprint_length_weeks: int | None = Field(default=None, strict=True, ge=MIN_SPRINT_LENGTH_WEEKS, le=MAX_SPRINT_LENGTH_WEEKS)
+    create_subtasks: bool = Field(default=False, strict=True)  # off unless asked: the push is then exactly what it was
     requirements: PushDocument
 
     @field_validator("start_date", mode="before")
@@ -209,7 +227,7 @@ def revise_endpoint(request: Request, req: ReviseRequest):
     """Edits the existing requirements document based on a free-text instruction."""
     if not API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not found. Check your .env file.")
-    return call_groq(revise_requirements, req.data, req.instruction)
+    return call_groq(revise_requirements, req.data.model_dump(), req.instruction)
 
 
 @api.post("/review")
@@ -219,7 +237,7 @@ def review_endpoint(request: Request, req: ReviewRequest):
     if not API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not found. Check your .env file.")
     qa_history = [{"q": qa.q, "a": qa.a} for qa in req.qa_history]
-    return call_groq(review_requirements, req.description, qa_history, req.data)
+    return call_groq(review_requirements, req.description, qa_history, req.data.model_dump())
 
 
 @api.post("/extract-notes")
@@ -236,6 +254,10 @@ def extract_notes_endpoint(request: Request, req: ExtractNotesRequest):
 @limiter.limit("4/day")
 def export_endpoint(request: Request, data: dict):
     """Builds a .docx file from the requirements data and returns it for download."""
+    try:
+        data = validate_docx_data(data)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="invalid_requirements_document")
     buf = build_docx(data)
     return StreamingResponse(
         buf,
@@ -308,6 +330,12 @@ async def order_stories_via_groq(user_stories: list[dict]) -> list[dict]:
     return await asyncio.to_thread(call_groq, plan_story_order, user_stories)
 
 
+async def plan_subtasks_via_groq(user_stories: list[dict], acceptance_criteria: list[dict]) -> dict | None:
+    """Runs the (blocking) sub-task planning off the event loop, through call_groq like
+    every other AI call. The push treats any failure here as "skip the sub-tasks"."""
+    return await asyncio.to_thread(call_groq, plan_subtasks, user_stories, acceptance_criteria)
+
+
 @api.post("/jira/push")
 @limiter.limit("10/day")
 async def jira_push(request: Request, req: JiraPushRequest):
@@ -346,6 +374,8 @@ async def jira_push(request: Request, req: JiraPushRequest):
         category=req.category,
         start_date=req.start_date,
         sprint_length_weeks=req.sprint_length_weeks,
+        create_subtasks=req.create_subtasks,
+        plan_subtasks=plan_subtasks_via_groq,
     )
     response = JSONResponse(body, status_code=status, headers={"Cache-Control": "no-store"})
     set_connection_cookie(response, connection)

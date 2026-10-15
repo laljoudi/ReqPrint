@@ -63,10 +63,11 @@ export function startJiraConnect(loginUrl) {
       else resolve();
     };
 
-    // Trust only messages from the window we opened: its origin can differ from
-    // this page's (dev server vs. backend), but no other window is our popup.
+    // Trust only messages from the window we opened, and only from this app's
+    // own origin. The backend callback posts to that exact origin.
     function onMessage(event) {
       if (event.source !== popup) return;
+      if (event.origin !== window.location.origin) return;
       const message = event.data;
       if (!message || typeof message !== "object") return;
       if (message.type === "jira-connected") settle();

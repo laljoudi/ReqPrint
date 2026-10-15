@@ -55,12 +55,15 @@ class JiraApiError(Exception):
     be reached), `message` is Jira's own error text, `fields` its per-field
     errors, and `attempts` (project creation only) every try that was made."""
 
-    def __init__(self, status: int | None, message: str, *, fields: dict | None = None, attempts: list | None = None):
+    def __init__(self, status: int | None, message: str, *, fields: dict | None = None, attempts: list | None = None, body=None):
         super().__init__(message)
         self.status = status
         self.message = message
         self.fields = fields or {}
         self.attempts = attempts
+        # The parsed JSON the error came with, when there was one. Bulk create answers a
+        # request where every element failed with HTTP 400 and its own body shape.
+        self.body = body
 
     def describe(self) -> str:
         return self.message if self.status is None else f"Jira returned HTTP {self.status}: {self.message}"
@@ -164,7 +167,11 @@ async def jira_request(cloud_id: str, access_token: str, method: str, path: str,
     if resp.status_code >= 400:
         logger.warning("Jira %s %s failed: HTTP %s", method, path, resp.status_code)
         message, fields = _parse_jira_error(resp)
-        raise JiraApiError(resp.status_code, message.replace(access_token, "[redacted]"), fields=fields)
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+        raise JiraApiError(resp.status_code, message.replace(access_token, "[redacted]"), fields=fields, body=body)
     if not resp.content:
         return None
     try:
@@ -389,10 +396,23 @@ async def _all_pages(cloud_id: str, access_token: str, path: str, list_key: str)
     return items
 
 
-async def resolve_issue_types(cloud_id: str, access_token: str, project_key: str) -> dict:
+def _pick_subtask_type(types: list[dict]) -> dict | None:
+    """The sub-task issue type, if the project has one: Jira marks them `subtask: true`
+    (hierarchy level -1, below Story). Prefers the one named Sub-task / Subtask."""
+    candidates = [t for t in types if t.get("subtask") is True or t.get("hierarchyLevel") == -1]
+    named = next((t for t in candidates if re.sub(r"[\s_-]+", "", str(t.get("name", "")).lower()) == "subtask"), None)
+    chosen = named or (candidates[0] if candidates else None)
+    return {"id": str(chosen["id"]), "name": chosen.get("name")} if chosen else None
+
+
+async def resolve_issue_types(cloud_id: str, access_token: str, project_key: str, *, want_subtask: bool = False) -> dict:
     """The ids to create issues with in this project: {"epic": {id, name},
     "story": {id, name}}. Story falls back to Task when the project has no Story.
-    Raises JiraSetupError if there's no Epic, or neither Story nor Task."""
+    Raises JiraSetupError if there's no Epic, or neither Story nor Task.
+
+    With want_subtask, the result also has "subtask": {id, name} - or None if the
+    project has no sub-task type. A missing sub-task type is not an error: sub-tasks
+    are optional, so the caller just skips them."""
     types = await _all_pages(
         cloud_id, access_token, f"/rest/api/3/issue/createmeta/{quote(project_key, safe='')}/issuetypes", "issueTypes"
     )
@@ -414,10 +434,13 @@ async def resolve_issue_types(cloud_id: str, access_token: str, project_key: str
             "no_story_issue_type",
             f"Project {project_key} has neither a Story nor a Task issue type you can create (available: {available}).",
         )
-    return {
+    resolved = {
         "epic": {"id": str(epic["id"]), "name": epic.get("name")},
         "story": {"id": str(story["id"]), "name": story.get("name")},
     }
+    if want_subtask:
+        resolved["subtask"] = _pick_subtask_type(types)
+    return resolved
 
 
 async def find_epic_name_field(cloud_id: str, access_token: str, project_key: str, epic_type_id: str) -> str | None:
@@ -593,6 +616,171 @@ async def create_story(
         },
         labels,
     )
+
+
+# ---------- Sub-tasks ----------
+# Sub-tasks are the real sub-task issue type, parented to their story. They follow
+# the story into its sprint (Jira derives a sub-task's sprint from its parent), so
+# they are never moved into a sprint or ranked, and capacity stays counted in stories.
+
+# Atlassian's definition of POST /rest/api/3/issue/bulk: "Creates upto 50 issues".
+BULK_CHUNK = 50
+
+
+def subtask_labels(base_labels: list[str] | None, discipline: str) -> list[str]:
+    """The labels for one sub-task: the push's own labels, plus its discipline."""
+    labels = list(base_labels or [])
+    slug = slugify_label(discipline)
+    if slug and slug not in labels:
+        labels.append(slug)
+    return labels
+
+
+def subtask_description(story: dict, criterion: dict | None) -> dict:
+    """ADF for a sub-task: it quotes the acceptance criterion it came from (scenario,
+    then Given / When / Then), or - if it came from the story text itself - the story."""
+    if criterion:
+        blocks = [adf_paragraph(("Acceptance criterion:", criterion.get("scenario") or ""))]
+        steps = [(label, criterion[key]) for label, key in (("Given", "given"), ("When", "when"), ("Then", "then")) if criterion.get(key)]
+        if steps:
+            blocks.append(adf_bullets(steps))
+        return adf_document(*blocks)
+    return adf_document(adf_paragraph(("From the story:", " ".join(str(story.get("story", "")).split()))))
+
+
+def _element_error_text(err: dict) -> str:
+    """One failed element of a bulk request, as readable text."""
+    element = err.get("elementErrors") if isinstance(err.get("elementErrors"), dict) else {}
+    parts = [str(m) for m in (element.get("errorMessages") or []) if m]
+    if isinstance(element.get("errors"), dict):
+        parts += [f"{k}: {v}" for k, v in element["errors"].items()]
+    text = "; ".join(parts) or "no reason given"
+    return f"Jira returned HTTP {err.get('status', 400)}: {text}"[:600]
+
+
+async def _bulk_create(cloud_id: str, access_token: str, fields_list: list[dict]) -> list[dict]:
+    """One POST /rest/api/3/issue/bulk call. Returns one result per element, in order:
+    {"key": str | None, "error": str | None, "label_error": bool}. A result with no key
+    and no error means "created, but we can't tell which key is whose" (the API doesn't
+    promise how `issues` lines up with the request when some elements failed; we assume
+    request order among the successes, and give up on keys if the counts don't agree).
+
+    Raises JiraApiError when the whole call failed in a way that says nothing per element."""
+    try:
+        data = await jira_request(
+            cloud_id, access_token, "POST", "/rest/api/3/issue/bulk", json={"issueUpdates": [{"fields": f} for f in fields_list]}
+        )
+    except JiraApiError as e:
+        # "Returned if all requests are invalid" is HTTP 400 with the same {issues, errors} body.
+        if e.status == 400 and isinstance(e.body, dict) and isinstance(e.body.get("errors"), list):
+            data = e.body
+        else:
+            raise
+    issues = data.get("issues") if isinstance(data, dict) and isinstance(data.get("issues"), list) else []
+    errors = [err for err in (data.get("errors") if isinstance(data, dict) else None) or [] if isinstance(err, dict)]
+    if fields_list and not issues and not errors:
+        raise JiraApiError(200, "Jira's bulk-create response listed no issues and no errors.")
+    failed = {}
+    for err in errors:
+        index = err.get("failedElementNumber")
+        if isinstance(index, int) and 0 <= index < len(fields_list):
+            failed[index] = err
+    results = []
+    succeeded = [i for i in range(len(fields_list)) if i not in failed]
+    keys = [issue.get("key") for issue in issues if isinstance(issue, dict)]
+    aligned = len(keys) == len(succeeded) and all(isinstance(k, str) and k for k in keys)
+    if not aligned:
+        logger.warning("Jira bulk create: %s issues came back for %s successful elements; not attributing keys", len(keys), len(succeeded))
+    ok_keys = dict(zip(succeeded, keys)) if aligned else {}
+    for i in range(len(fields_list)):
+        if i in failed:
+            errors_by_field = (failed[i].get("elementErrors") or {}).get("errors") if isinstance(failed[i].get("elementErrors"), dict) else None
+            results.append({"key": None, "error": _element_error_text(failed[i]), "label_error": isinstance(errors_by_field, dict) and "labels" in errors_by_field})
+        elif i in ok_keys or not aligned:
+            results.append({"key": ok_keys.get(i), "error": None, "label_error": False})
+        else:
+            results.append({"key": None, "error": "Jira did not report this sub-task.", "label_error": False})
+    return results
+
+
+async def create_subtasks_bulk(
+    cloud_id: str,
+    access_token: str,
+    *,
+    project_key: str,
+    issue_type_id: str,
+    items: list[dict],
+    labels: list[str] | None = None,
+) -> dict:
+    """Creates sub-tasks in bulk (up to 50 per call). Each item is {story_key, title,
+    discipline, story: {story, ...}, criterion: dict | None}. A sub-task failing never
+    affects the others, or the story it belongs to - those already exist.
+
+    Labels are the push's own plus the discipline. They never fail a sub-task: ones Jira
+    refuses are re-created without labels (and reported), and once Jira has refused
+    labels on this issue type they are no longer sent. A failure that would hit every
+    call (Jira unreachable, credentials rejected, rate-limited) stops early.
+
+    Returns {"results": [{"key", "error", "labels_dropped"} per item, in order],
+             "created": int, "stopped": reason | None}."""
+    results: list[dict] = [{"key": None, "error": None, "labels_dropped": None, "done": False} for _ in items]
+    created = 0
+    stopped = None
+    labels_refused = None  # Jira's reason, once it has refused labels on this issue type
+
+    def fields_for(item: dict, with_labels: bool) -> dict:
+        fields = {
+            "project": {"key": project_key},
+            "issuetype": {"id": issue_type_id},
+            "summary": _summary(item["title"]),
+            "description": subtask_description(item.get("story") or {}, item.get("criterion")),
+            "parent": {"key": item["story_key"]},
+        }
+        if with_labels and labels:
+            fields["labels"] = subtask_labels(labels, item["discipline"])
+        return fields
+
+    async def run(indices: list[int], with_labels: bool) -> list[dict]:
+        nonlocal created
+        outcome = await _bulk_create(cloud_id, access_token, [fields_for(items[i], with_labels) for i in indices])
+        created += sum(1 for r in outcome if r["error"] is None)
+        return outcome
+
+    position = 0
+    while position < len(items) and stopped is None:
+        indices = list(range(position, min(position + BULK_CHUNK, len(items))))
+        position += len(indices)
+        with_labels = bool(labels) and labels_refused is None
+        try:
+            outcome = await run(indices, with_labels)
+            retry = []
+            for i, r in zip(indices, outcome):
+                if r["label_error"] and with_labels:
+                    labels_refused = labels_refused or r["error"]
+                    retry.append(i)
+                else:
+                    results[i].update(key=r["key"], error=r["error"], done=True)
+                    if r["error"] is None and labels and not with_labels:
+                        results[i]["labels_dropped"] = f"Not sent: Jira refused labels for sub-tasks earlier in this push ({labels_refused})"
+            if retry:
+                logger.warning("Jira rejected the labels on %s sub-task(s); creating them without: %s", len(retry), labels_refused)
+                for i, r in zip(retry, await run(retry, False)):
+                    results[i].update(key=r["key"], error=r["error"], done=True)
+                    if r["error"] is None:
+                        results[i]["labels_dropped"] = labels_refused
+        except JiraApiError as e:
+            for i in indices:
+                if not results[i]["done"]:
+                    results[i].update(error=e.describe(), done=True)
+            if e.status in (None, 401, 403, 429):
+                stopped = e.describe()
+    if stopped:
+        for r in results:
+            if not r["done"]:
+                r.update(error=f"Not attempted: {stopped}", done=True)
+    for r in results:
+        del r["done"]
+    return {"results": results, "created": created, "stopped": stopped}
 
 
 # ---------- Sprints ----------

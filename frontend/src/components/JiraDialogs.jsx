@@ -12,8 +12,8 @@ import {
   formatLocalDate,
   parseCapacity,
   parseISODate,
+  previewParts,
   previewPlan,
-  previewText,
   safeHttpUrl,
   validateForm,
 } from "../lib/jiraPlan";
@@ -301,8 +301,37 @@ export function FormView({
         />
       </Field>
 
+      <div className="mb-4">
+        <label htmlFor={`${id}-subtasks`} className="flex items-center gap-2.5 text-[13px] font-semibold text-ink cursor-pointer">
+          <input
+            id={`${id}-subtasks`}
+            type="checkbox"
+            checked={values.subtasks}
+            disabled={submitting}
+            onChange={(event) => onChange("subtasks", event.target.checked)}
+            className="h-4 w-4 flex-none accent-accent"
+          />
+          Break stories into sub-tasks
+        </label>
+        <p className="text-[12px] text-muted mt-1.5 ml-[26px] m-0">
+          Each story gets a few sub-tasks drawn from its acceptance criteria. They follow the story into its sprint, so capacity still counts stories.
+        </p>
+      </div>
+
       <div className="mb-4 rounded-lg border border-border bg-surface px-4 py-2.5 text-[13.5px] font-semibold text-ink" aria-live="polite">
-        {errors.stories ? <span className="font-normal text-accent-dark">{errors.stories}</span> : plan ? previewText(plan) : "Fill in the fields above to see the plan."}
+        {errors.stories ? (
+          <span className="font-normal text-accent-dark">{errors.stories}</span>
+        ) : plan ? (
+          // Each part stays on one line, so a narrow screen breaks between them ("... 2 sprints ·" / "7 Nov → 5 Dec"), never inside a date.
+          previewParts(plan).map((part, i, all) => (
+            <span key={part}>
+              <span className="whitespace-nowrap">{i < all.length - 1 ? `${part} ·` : part}</span>
+              {i < all.length - 1 && " "}
+            </span>
+          ))
+        ) : (
+          "Fill in the fields above to see the plan."
+        )}
       </div>
 
       {submitting && <Progress stage={stage} />}
@@ -322,6 +351,24 @@ export function FormView({
 
 // ---------- 4. the result ----------
 
+// Why sub-tasks were left out of a push that otherwise went through. result.subtasks_skipped is a
+// list: one entry with story_id null and one of these reasons when ALL sub-tasks were skipped, and one
+// "criterion_citation" entry per story whose sub-tasks were dropped for not tying back to a criterion.
+const SUBTASKS_SKIPPED = {
+  no_subtask_type: "This Jira project has no sub-task issue type, so the stories were created without sub-tasks.",
+  ai_unavailable: "The AI service wasn't available to plan sub-tasks, so the stories were created without them.",
+  invalid_ai_output: "The AI's sub-task plan didn't pass validation, so the stories were created without sub-tasks.",
+};
+
+// How one sub-task's source reads in the audit list.
+function sourceText(row) {
+  if (row.source === "criterion") {
+    const scenario = row.criterion_scenario ? `: ${truncate(String(row.criterion_scenario), 70)}` : "";
+    return `criterion ${row.criterion_index}${scenario}`;
+  }
+  return "the story text (this story has no acceptance criteria)";
+}
+
 const truncate = (text, n) => (text.length > n ? `${text.slice(0, n - 1).trimEnd()}…` : text);
 
 export function ResultView({ result, stories, onClose }) {
@@ -334,6 +381,12 @@ export function ResultView({ result, stories, onClose }) {
   const when = start ? formatFullDate(new Date(Date.UTC(start.y, start.m - 1, start.d))) : null;
   const created = result.stories_created ?? 0;
   const sprints = result.sprint_count ?? 0;
+  const subtasksCreated = result.subtasks_created ?? 0;
+  const subtasksFailed = Array.isArray(result.subtasks_failed) ? result.subtasks_failed : [];
+  const skipped = Array.isArray(result.subtasks_skipped) ? result.subtasks_skipped : [];
+  const subtasksSkipped = SUBTASKS_SKIPPED[skipped.find((x) => x && !x.story_id)?.reason] || null;
+  const droppedStories = skipped.filter((x) => x && x.story_id && x.reason === "criterion_citation");
+  const subtaskRows = Array.isArray(result.subtask_details) ? result.subtask_details.filter((r) => r.created) : [];
 
   return (
     <>
@@ -341,7 +394,9 @@ export function ResultView({ result, stories, onClose }) {
         Your tasks are in project <strong>{result.project_key}</strong>.
       </p>
       <p className="text-[13.5px] leading-[1.6] text-muted m-0 mb-4">
-        {created} {created === 1 ? "story" : "stories"} created · {sprints} {sprints === 1 ? "sprint" : "sprints"}
+        {created} {created === 1 ? "story" : "stories"} created
+        {result.subtasks_requested && subtasksCreated > 0 ? ` · ${subtasksCreated} ${subtasksCreated === 1 ? "sub-task" : "sub-tasks"}` : ""}
+        {" · "}{sprints} {sprints === 1 ? "sprint" : "sprints"}
         {when && result.sprint_length_weeks ? ` of ${result.sprint_length_weeks} ${result.sprint_length_weeks === 1 ? "week" : "weeks"}, starting ${when}` : ""}
       </p>
 
@@ -363,6 +418,53 @@ export function ResultView({ result, stories, onClose }) {
             </ul>
           </Notice>
         </div>
+      )}
+
+      {subtasksFailed.length > 0 && (
+        <div className="mb-4">
+          <Notice>
+            <p className="m-0 font-semibold">
+              {subtasksFailed.length} {subtasksFailed.length === 1 ? "sub-task" : "sub-tasks"} couldn't be created. The stories are fine.
+            </p>
+            <ul className="m-0 mt-1.5 pl-4 max-h-40 overflow-y-auto text-[12.5px] leading-relaxed">
+              {subtasksFailed.map((f, i) => (
+                <li key={`${f.story_id}-${i}`}>
+                  <strong>{f.story_id}</strong> - {truncate(String(f.title || ""), 90)}
+                  <br />
+                  <span className="opacity-80">{truncate(String(f.reason || "No reason given."), 220)}</span>
+                </li>
+              ))}
+            </ul>
+          </Notice>
+        </div>
+      )}
+      {subtasksSkipped && (
+        <div className="mb-3">
+          <Notice tone="note">{subtasksSkipped}</Notice>
+        </div>
+      )}
+      {droppedStories.length > 0 && (
+        <div className="mb-3">
+          <Notice tone="note">
+            No sub-tasks were created for {droppedStories.map((x) => x.story_id).join(", ")}: most of what the AI proposed there
+            didn't match any of the story's acceptance criteria, so it was thrown away rather than made up. The{" "}
+            {droppedStories.length === 1 ? "story itself is" : "stories themselves are"} fine.
+          </Notice>
+        </div>
+      )}
+      {subtaskRows.length > 0 && (
+        <details className="mb-4 text-[12.5px] text-muted">
+          <summary className="cursor-pointer">Where each sub-task came from</summary>
+          <ul className="m-0 mt-1.5 pl-4 max-h-40 overflow-y-auto leading-relaxed">
+            {subtaskRows.map((r, i) => (
+              <li key={`${r.key || r.story_id}-${i}`}>
+                <strong>{r.key || r.story_id}</strong> - {truncate(String(r.title || ""), 80)}
+                <br />
+                <span className="opacity-80">from {sourceText(r)}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
       {labelsFailed.length > 0 && (

@@ -3,6 +3,7 @@ bodies for epics/stories/sprints, and the ordered sprint move. The HTTP layer
 (jira_request) is faked, so no network. Run from the repo root:
     .venv/bin/python -m unittest discover -s tests -t . -v"""
 import asyncio
+import json
 import os
 import unittest
 from unittest import mock
@@ -517,6 +518,229 @@ class SprintDates(unittest.TestCase):
             with self.assertRaises(jc.JiraApiError) as ctx:
                 self.create(jc.JiraApiError(400, "name: bad"), second)
         self.assertIs(ctx.exception, second)
+
+
+class SubtaskType(unittest.TestCase):
+    def types(self, *specs):
+        return {"issueTypes": [{"id": str(i), "name": n, "subtask": sub, "hierarchyLevel": lvl} for i, (n, sub, lvl) in enumerate(specs, 10)], "total": len(specs)}
+
+    def resolve(self, page, **kw):
+        with mock.patch.object(jc, "jira_request", Recorder(page)):
+            return run(jc.resolve_issue_types("c", "t", "KEY", **kw))
+
+    BASE = (("Epic", False, 1), ("Story", False, 0), ("Task", False, 0))
+
+    def test_not_asked_not_in_the_result(self):
+        self.assertEqual(set(self.resolve(self.types(*self.BASE, ("Sub-task", True, -1)))), {"epic", "story"})
+
+    def test_finds_the_subtask_type(self):
+        r = self.resolve(self.types(*self.BASE, ("Sub-task", True, -1)), want_subtask=True)
+        self.assertEqual(r["subtask"], {"id": "13", "name": "Sub-task"})
+        self.assertEqual((r["epic"]["name"], r["story"]["name"]), ("Epic", "Story"))
+
+    def test_team_managed_projects_call_it_subtask(self):
+        self.assertEqual(self.resolve(self.types(*self.BASE, ("Subtask", True, -1)), want_subtask=True)["subtask"]["name"], "Subtask")
+
+    def test_prefers_the_one_named_subtask_over_other_subtask_types(self):
+        r = self.resolve(self.types(*self.BASE, ("Checklist item", True, -1), ("Sub-task", True, -1)), want_subtask=True)
+        self.assertEqual(r["subtask"]["name"], "Sub-task")
+
+    def test_any_subtask_type_will_do_if_none_is_named_subtask(self):
+        self.assertEqual(self.resolve(self.types(*self.BASE, ("Checklist item", True, -1)), want_subtask=True)["subtask"]["name"], "Checklist item")
+
+    def test_no_subtask_type_is_none_not_an_error(self):
+        self.assertIsNone(self.resolve(self.types(*self.BASE), want_subtask=True)["subtask"])
+
+    def test_a_standard_type_is_never_mistaken_for_a_subtask(self):
+        r = self.resolve(self.types(("Epic", False, 1), ("Story", False, 0), ("Bug", False, 0)), want_subtask=True)
+        self.assertIsNone(r["subtask"])
+
+    def test_the_epic_and_story_rules_are_unchanged_when_subtasks_are_asked_for(self):
+        with mock.patch.object(jc, "jira_request", Recorder(self.types(("Story", False, 0), ("Sub-task", True, -1)))):
+            with self.assertRaises(jc.JiraSetupError) as ctx:
+                run(jc.resolve_issue_types("c", "t", "KEY", want_subtask=True))
+        self.assertEqual(ctx.exception.code, "no_epic_issue_type")
+
+
+class SubtaskContent(unittest.TestCase):
+    CRITERION = {"scenario": "Duplicate ISBN", "given": "a book exists", "when": "it is added again", "then": "it is rejected"}
+
+    def test_labels_are_the_pushs_own_plus_the_discipline(self):
+        self.assertEqual(jc.subtask_labels(["reqprint", "fintech"], "backend"), ["reqprint", "fintech", "backend"])
+        self.assertEqual(jc.subtask_labels(["reqprint"], "qa"), ["reqprint", "qa"])
+        self.assertEqual(jc.subtask_labels(None, "design"), ["design"])
+        self.assertEqual(jc.subtask_labels(["reqprint", "backend"], "backend"), ["reqprint", "backend"])      # no repeats
+
+    def test_every_discipline_is_a_valid_label(self):
+        for d in ("backend", "frontend", "qa", "design"):
+            self.assertEqual(jc.slugify_label(d), d)
+
+    def test_the_description_quotes_the_criterion_it_came_from(self):
+        doc = jc.subtask_description({"story": "S"}, self.CRITERION)
+        self.assertEqual((doc["type"], doc["version"]), ("doc", 1))
+        text = json.dumps(doc)
+        for fragment in ("Acceptance criterion:", "Duplicate ISBN", "a book exists", "it is added again", "it is rejected", "Given ", "When ", "Then "):
+            self.assertIn(fragment, text)
+        self.assertEqual([n["type"] for n in doc["content"]], ["paragraph", "bulletList"])
+        self.assertEqual(len(doc["content"][1]["content"]), 3)
+
+    def test_without_a_criterion_it_quotes_the_story(self):
+        doc = jc.subtask_description({"story": "As a user,\n I want   x"}, None)
+        self.assertEqual([n["type"] for n in doc["content"]], ["paragraph"])
+        self.assertIn("From the story:", json.dumps(doc))
+        self.assertIn("As a user, I want x", json.dumps(doc))
+
+    def test_a_partial_criterion_never_makes_an_empty_text_node(self):
+        doc = jc.subtask_description({"story": "S"}, {"scenario": "", "given": "g", "when": "", "then": ""})
+        texts = [t["text"] for n in doc["content"] for t in n.get("content", []) if t.get("type") == "text"]
+        self.assertTrue(texts and all(texts))
+
+
+def sub_item(i, story_key="K-1", discipline="backend", criterion=None):
+    return {"story_key": story_key, "story_id": "US-01", "title": f"Task {i}", "discipline": discipline, "story": {"story": "S"}, "criterion": criterion}
+
+
+def bulk_ok(n, start=100):
+    return {"issues": [{"id": str(start + i), "key": f"K-{start + i}", "self": "x"} for i in range(n)], "errors": []}
+
+
+def element_error(index, errors=None, messages=None, status=400):
+    return {"status": status, "failedElementNumber": index, "elementErrors": {"errorMessages": messages or [], "errors": errors or {}}}
+
+
+class BulkCreate(unittest.TestCase):
+    def create(self, items, *responses, labels=("reqprint",)):
+        rec = Recorder(*responses)
+        with mock.patch.object(jc, "jira_request", rec):
+            outcome = run(jc.create_subtasks_bulk("c", "t", project_key="KEY", issue_type_id="10004", items=items, labels=list(labels) if labels else None))
+        return outcome, rec.calls
+
+    def test_one_call_with_the_right_shape_for_each_subtask(self):
+        outcome, calls = self.create([sub_item(0, criterion={"scenario": "Sc", "given": "g"}), sub_item(1, "K-2", "frontend")], bulk_ok(2))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual((calls[0]["method"], calls[0]["path"]), ("POST", "/rest/api/3/issue/bulk"))
+        elements = calls[0]["json"]["issueUpdates"]
+        self.assertEqual(len(elements), 2)
+        f0, f1 = elements[0]["fields"], elements[1]["fields"]
+        self.assertEqual(set(f0), {"project", "issuetype", "summary", "description", "parent", "labels"})
+        self.assertEqual((f0["project"], f0["issuetype"], f0["summary"], f0["parent"], f0["labels"]), ({"key": "KEY"}, {"id": "10004"}, "Task 0", {"key": "K-1"}, ["reqprint", "backend"]))
+        self.assertEqual((f1["parent"], f1["labels"]), ({"key": "K-2"}, ["reqprint", "frontend"]))
+        self.assertEqual([r["key"] for r in outcome["results"]], ["K-100", "K-101"])
+        self.assertEqual((outcome["created"], outcome["stopped"]), (2, None))
+
+    def test_chunks_of_at_most_fifty(self):
+        outcome, calls = self.create([sub_item(i) for i in range(120)], bulk_ok(50, 0), bulk_ok(50, 50), bulk_ok(20, 100))
+        self.assertEqual([len(c["json"]["issueUpdates"]) for c in calls], [50, 50, 20])
+        self.assertEqual(outcome["created"], 120)
+        self.assertEqual([r["key"] for r in outcome["results"]][:2] + [outcome["results"][-1]["key"]], ["K-0", "K-1", "K-119"])
+
+    def test_no_items_no_calls(self):
+        outcome, calls = self.create([], )
+        self.assertEqual((calls, outcome["results"], outcome["created"]), ([], [], 0))
+
+    def test_no_labels_given_means_none_are_sent(self):
+        _, calls = self.create([sub_item(0)], bulk_ok(1), labels=None)
+        self.assertNotIn("labels", calls[0]["json"]["issueUpdates"][0]["fields"])
+
+    def test_failed_elements_are_matched_by_failedElementNumber_and_the_rest_keep_their_order(self):
+        answer = {"issues": [{"id": "1", "key": "K-100"}, {"id": "2", "key": "K-101"}, {"id": "3", "key": "K-102"}], "errors": [element_error(1, {"summary": "Too long."}), element_error(3, messages=["No permission."])]}
+        outcome, _ = self.create([sub_item(i) for i in range(5)], answer)
+        r = outcome["results"]
+        self.assertEqual([x["key"] for x in r], ["K-100", None, "K-101", None, "K-102"])
+        self.assertIn("summary: Too long.", r[1]["error"])
+        self.assertIn("No permission.", r[3]["error"])
+        self.assertTrue(all(x["error"] is None for x in (r[0], r[2], r[4])))
+        self.assertEqual(outcome["created"], 3)
+
+    def test_every_element_failing_arrives_as_http_400_with_the_same_body_and_is_read_per_element(self):
+        body = {"issues": [], "errors": [element_error(0, {"parent": "Bad parent."}), element_error(1, {"parent": "Bad parent."})]}
+        outcome, _ = self.create([sub_item(0), sub_item(1)], jc.JiraApiError(400, "raw text", body=body))
+        self.assertEqual([x["key"] for x in outcome["results"]], [None, None])
+        self.assertTrue(all("Bad parent." in x["error"] and "HTTP 400" in x["error"] for x in outcome["results"]))
+        self.assertEqual((outcome["created"], outcome["stopped"]), (0, None))
+
+    def test_labels_jira_refuses_are_retried_without_them_and_reported(self):
+        first = {"issues": [{"id": "1", "key": "K-100"}], "errors": [element_error(1, {"labels": "Field 'labels' cannot be set."})]}
+        retry = {"issues": [{"id": "2", "key": "K-101"}], "errors": []}
+        outcome, calls = self.create([sub_item(0), sub_item(1)], first, retry)
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn("labels", calls[1]["json"]["issueUpdates"][0]["fields"])
+        self.assertEqual([x["key"] for x in outcome["results"]], ["K-100", "K-101"])
+        self.assertIsNone(outcome["results"][0]["labels_dropped"])
+        self.assertIn("labels", outcome["results"][1]["labels_dropped"])
+        self.assertEqual(outcome["created"], 2)
+
+    def test_once_labels_are_refused_later_chunks_do_not_send_them(self):
+        refuse_all = {"issues": [], "errors": [element_error(i, {"labels": "nope"}) for i in range(50)]}
+        retry = bulk_ok(50, 0)
+        later = bulk_ok(10, 50)
+        outcome, calls = self.create([sub_item(i) for i in range(60)], jc.JiraApiError(400, "x", body=refuse_all), retry, later)
+        self.assertEqual([("labels" in c["json"]["issueUpdates"][0]["fields"]) for c in calls], [True, False, False])
+        self.assertEqual(outcome["created"], 60)
+        self.assertTrue(all(r["labels_dropped"] for r in outcome["results"]))
+        self.assertIn("Not sent", outcome["results"][-1]["labels_dropped"])
+
+    def test_a_label_error_does_not_hide_a_different_error_on_the_same_element(self):
+        answer = {"issues": [], "errors": [element_error(0, {"labels": "nope", "parent": "Bad parent."})]}
+        retry = {"issues": [], "errors": [element_error(0, {"parent": "Bad parent."})]}
+        outcome, _ = self.create([sub_item(0)], jc.JiraApiError(400, "x", body=answer), jc.JiraApiError(400, "x", body=retry))
+        self.assertIn("Bad parent.", outcome["results"][0]["error"])
+        self.assertIsNone(outcome["results"][0]["key"])
+
+    def test_a_failure_that_would_hit_every_call_stops_early(self):
+        for status in (401, 403, 429, None):
+            outcome, calls = self.create([sub_item(i) for i in range(120)], bulk_ok(50, 0), jc.JiraApiError(status, "systemic"))
+            self.assertEqual(len(calls), 2, status)                                    # nothing after the failing call
+            r = outcome["results"]
+            self.assertEqual(sum(1 for x in r if x["key"]), 50, status)
+            self.assertTrue(all(x["error"] for x in r[50:]), status)
+            self.assertTrue(all(x["error"].startswith("Not attempted") for x in r[100:]), status)
+            self.assertTrue(outcome["stopped"], status)
+
+    def test_another_error_fails_that_chunk_and_the_next_one_is_still_tried(self):
+        outcome, calls = self.create([sub_item(i) for i in range(60)], jc.JiraApiError(500, "boom"), bulk_ok(10, 50))
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all("HTTP 500" in x["error"] for x in outcome["results"][:50]))
+        self.assertTrue(all(x["key"] for x in outcome["results"][50:]))
+        self.assertIsNone(outcome["stopped"])
+
+    def test_keys_are_not_attributed_when_the_counts_do_not_add_up(self):
+        with self.assertLogs(jc.logger, "WARNING"):
+            outcome, _ = self.create([sub_item(0), sub_item(1), sub_item(2)], {"issues": [{"id": "1", "key": "K-1"}], "errors": []})
+        self.assertEqual([x["key"] for x in outcome["results"]], [None, None, None])
+        self.assertEqual([x["error"] for x in outcome["results"]], [None, None, None])     # created, just not attributable
+        self.assertEqual(outcome["created"], 3)
+
+    def test_an_empty_answer_is_a_failure_not_a_success(self):
+        outcome, _ = self.create([sub_item(0)], {"issues": [], "errors": []})
+        self.assertIn("no issues and no errors", outcome["results"][0]["error"])
+        self.assertEqual(outcome["created"], 0)
+
+    def test_the_summary_is_kept_within_jiras_limit(self):
+        item = sub_item(0)
+        item["title"] = "word " * 100
+        _, calls = self.create([item], bulk_ok(1))
+        self.assertLessEqual(len(calls[0]["json"]["issueUpdates"][0]["fields"]["summary"]), 254)
+
+
+class ErrorBody(unittest.TestCase):
+    def test_jira_request_keeps_the_parsed_body_of_an_error(self):
+        body = {"issues": [], "errors": [element_error(0, {"x": "y"})]}
+        real = jc.httpx.AsyncClient
+        with mock.patch.object(jc.httpx, "AsyncClient", lambda **kw: real(transport=jc.httpx.MockTransport(lambda r: jc.httpx.Response(400, json=body)), **kw)):
+            with self.assertLogs(jc.logger, "WARNING"):
+                with self.assertRaises(jc.JiraApiError) as ctx:
+                    run(jc.jira_request("c", "t", "POST", "/rest/api/3/issue/bulk", json={}))
+        self.assertEqual(ctx.exception.status, 400)
+        self.assertEqual(ctx.exception.body, body)
+
+    def test_a_body_that_is_not_json_is_none(self):
+        real = jc.httpx.AsyncClient
+        with mock.patch.object(jc.httpx, "AsyncClient", lambda **kw: real(transport=jc.httpx.MockTransport(lambda r: jc.httpx.Response(500, text="oops")), **kw)):
+            with self.assertLogs(jc.logger, "WARNING"):
+                with self.assertRaises(jc.JiraApiError) as ctx:
+                    run(jc.jira_request("c", "t", "GET", "/x"))
+        self.assertIsNone(ctx.exception.body)
 
 
 if __name__ == "__main__":

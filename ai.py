@@ -6,8 +6,8 @@ from collections import Counter
 from dotenv import load_dotenv
 from groq import BadRequestError, Groq
 from functools import lru_cache
-from typing import Literal
-from pydantic import BaseModel
+from typing import Annotated, Literal
+from pydantic import BaseModel, Field
 
 from prompts import (
     GENERATE_PROMPT,
@@ -16,12 +16,21 @@ from prompts import (
     REVIEW_PROMPT,
     NOTES_EXTRACTION_PROMPT,
     STORY_ORDER_PROMPT,
+    SUBTASKS_PROMPT,
 )
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 API_KEY = os.getenv("GROQ_API_KEY")
 MODEL = "openai/gpt-oss-120b"
+MAX_REQUIREMENT_TEXT_CHARS = 1_500
+MAX_REQUIREMENT_ITEMS = 100
+MAX_USER_STORIES = 100
+MAX_ACCEPTANCE_CRITERIA = 300
+MAX_USE_CASES = 100
+MAX_ASSUMPTIONS = 100
+RequirementText = Annotated[str, Field(min_length=1, max_length=MAX_REQUIREMENT_TEXT_CHARS)]
+OptionalRequirementText = Annotated[str, Field(max_length=MAX_REQUIREMENT_TEXT_CHARS)]
 
 @lru_cache
 def _client():
@@ -29,44 +38,44 @@ def _client():
 
 
 class NotesExtraction(BaseModel):
-    clear_requirements: list[str]
-    implied_user_stories: list[str]
-    open_questions: list[str]
+    clear_requirements: list[RequirementText] = Field(max_length=MAX_REQUIREMENT_ITEMS)
+    implied_user_stories: list[RequirementText] = Field(max_length=MAX_REQUIREMENT_ITEMS)
+    open_questions: list[RequirementText] = Field(max_length=MAX_REQUIREMENT_ITEMS)
 
 
 class NextQuestionResult(BaseModel):
     done: bool
-    question: str | None
-    suggested_answers: list[str]
+    question: OptionalRequirementText | None
+    suggested_answers: list[RequirementText] = Field(max_length=3)
 
 
 class Requirements(BaseModel):
-    functional: list[str]
-    non_functional: list[str]
+    functional: list[RequirementText] = Field(max_length=MAX_REQUIREMENT_ITEMS)
+    non_functional: list[RequirementText] = Field(max_length=MAX_REQUIREMENT_ITEMS)
 
 
 class UserStory(BaseModel):
-    id: str
-    role: str
-    story: str
+    id: str = Field(min_length=1, max_length=50)
+    role: OptionalRequirementText
+    story: RequirementText
 
 
 class AcceptanceCriterion(BaseModel):
-    story_id: str
-    scenario: str
-    given: str
-    when: str
-    then: str
+    story_id: str = Field(max_length=50)
+    scenario: OptionalRequirementText
+    given: OptionalRequirementText
+    when: OptionalRequirementText
+    then: OptionalRequirementText
 
 
 class UseCase(BaseModel):
-    use_case_id: str
-    actors: str
-    description: str
-    preconditions: str
-    trigger: str
-    main_flow: str
-    alternative_flow: str
+    use_case_id: str = Field(min_length=1, max_length=50)
+    actors: OptionalRequirementText
+    description: RequirementText
+    preconditions: OptionalRequirementText
+    trigger: OptionalRequirementText
+    main_flow: RequirementText
+    alternative_flow: OptionalRequirementText
 
 
 class GeneratedRequirements(BaseModel):
@@ -75,10 +84,10 @@ class GeneratedRequirements(BaseModel):
     it was given, just edited."""
 
     requirements: Requirements
-    user_stories: list[UserStory]
-    acceptance_criteria: list[AcceptanceCriterion]
-    use_cases: list[UseCase]
-    assumptions: list[str]
+    user_stories: list[UserStory] = Field(max_length=MAX_USER_STORIES)
+    acceptance_criteria: list[AcceptanceCriterion] = Field(max_length=MAX_ACCEPTANCE_CRITERIA)
+    use_cases: list[UseCase] = Field(max_length=MAX_USE_CASES)
+    assumptions: list[RequirementText] = Field(max_length=MAX_ASSUMPTIONS)
 
 
 class ReviewIssue(BaseModel):
@@ -99,8 +108,29 @@ class StoryOrderItem(BaseModel):
     depends_on: list[str]
 
 
+SUBTASK_DISCIPLINES = ("backend", "frontend", "qa", "design")
+
+
 class StoryOrderPlan(BaseModel):
     ordered_stories: list[StoryOrderItem]
+
+
+# Sub-tasks per story. Deliberately no estimate/size/hours field anywhere, and no
+# length constraints in the schema (they're checked in code, where a failure can
+# be logged and degraded instead of rejected by the API).
+class SubtaskItem(BaseModel):
+    title: str
+    discipline: Literal["backend", "frontend", "qa", "design"]
+    criterion_index: int | None
+
+
+class StorySubtasks(BaseModel):
+    story_id: str
+    subtasks: list[SubtaskItem]
+
+
+class SubtaskPlan(BaseModel):
+    stories: list[StorySubtasks]
 
 
 def _forbid_additional_properties(schema):
@@ -262,3 +292,136 @@ def plan_story_order(user_stories):
         logger.warning("plan_story_order: model order rejected (%s); keeping document order", problem)
         return _document_order(story_ids)
     return order
+
+
+MIN_SUBTASKS_PER_STORY = 1
+MAX_SUBTASKS_PER_STORY = 5
+# Stories per AI call. Keeps each request (the stories plus all their criteria) and
+# each answer comfortably small; a document of 10 stories is one call.
+SUBTASK_BATCH_SIZE = 25
+
+
+def _check_subtask_batch(items, batch_ids, criteria_by_story):
+    """Validates one answer from the model against the stories it was asked about.
+
+    Whole-answer checks - any failure returns (None, why) and the caller skips every
+    sub-task: each returned story id must be one of ours and appear once, each story
+    must have 1-5 sub-tasks, and each sub-task a title and an allowed discipline.
+
+    The derivation rule, enforced per sub-task, never silently repaired:
+      - a story WITH acceptance criteria: every sub-task must cite a criterion_index
+        that exists for that story. One that cites nothing, or an index the story
+        doesn't have, is REJECTED - it is not rewritten to quote the story text.
+      - a story WITHOUT criteria is the only place the story-text fallback applies:
+        its sub-tasks must cite nothing (criterion_index null); one that cites a
+        criterion the story doesn't have is rejected too.
+      - if MORE THAN HALF of a story's sub-tasks are rejected, that story gets no
+        sub-tasks at all rather than a partial set.
+
+    Returns ({"plan", "rejected", "dropped"}, None):
+      plan     {story_id: [{title, discipline, criterion_index, criterion}]} - criterion
+               is the cited criterion (a dict), or None only for a no-criteria story
+      rejected [{story_id, title, reason}] for every sub-task the rule threw out
+      dropped  [{story_id, rejected, total, reason}] for each story left with none"""
+    expected = set(batch_ids)
+    seen = Counter(item.story_id.strip() for item in items)
+    unknown = set(seen) - expected
+    duplicated = {i for i, n in seen.items() if n > 1}
+    if unknown or duplicated:
+        return None, f"unknown={len(unknown)} duplicated={len(duplicated)}"
+    plan, rejected, dropped = {}, [], []
+    for item in items:
+        story_id = item.story_id.strip()
+        total = len(item.subtasks)
+        if not MIN_SUBTASKS_PER_STORY <= total <= MAX_SUBTASKS_PER_STORY:
+            return None, f"{story_id} has {total} sub-tasks (allowed {MIN_SUBTASKS_PER_STORY}-{MAX_SUBTASKS_PER_STORY})"
+        criteria = criteria_by_story.get(story_id, [])
+        kept, bad = [], []
+        for sub in item.subtasks:
+            title = " ".join(sub.title.split()).rstrip(".")
+            if not title:
+                return None, f"{story_id} has a sub-task with an empty title"
+            if sub.discipline not in SUBTASK_DISCIPLINES:  # the schema already enforces this; belt and braces
+                return None, f"{story_id} has a sub-task with discipline {sub.discipline!r}"
+            index = sub.criterion_index
+            valid_index = isinstance(index, int) and not isinstance(index, bool) and 0 <= index < len(criteria)
+            if criteria and valid_index:
+                kept.append({"title": title, "discipline": sub.discipline, "criterion_index": index, "criterion": criteria[index]})
+            elif not criteria and index is None:
+                kept.append({"title": title, "discipline": sub.discipline, "criterion_index": None, "criterion": None})
+            else:
+                if index is None:
+                    reason = "cited no acceptance criterion"
+                elif criteria:
+                    reason = f"cited criterion {index}, but this story only has criteria 0-{len(criteria) - 1}"
+                else:
+                    reason = f"cited criterion {index}, but this story has no acceptance criteria"
+                bad.append({"story_id": story_id, "title": title, "reason": reason})
+        rejected += bad
+        if bad and len(bad) * 2 > total:
+            reason = f"{len(bad)} of its {total} sub-tasks didn't tie back to a real acceptance criterion, so none were created for this story"
+            dropped.append({"story_id": story_id, "rejected": len(bad), "total": total, "reason": reason})
+            logger.warning("plan_subtasks: %s: %s", story_id, reason)
+        elif kept:
+            plan[story_id] = kept
+    if not items:
+        return None, "no stories returned"
+    if rejected:
+        logger.warning("plan_subtasks: %s sub-task(s) rejected for not citing a real acceptance criterion", len(rejected))
+    return {"plan": plan, "rejected": rejected, "dropped": dropped}, None
+
+
+def plan_subtasks(user_stories, acceptance_criteria):
+    """Break each user story into sub-tasks derived from the story and its own
+    acceptance criteria (matched by story_id) - never a fixed template, never an
+    estimate. Takes the document's user_stories and acceptance_criteria and returns
+    {"plan": {story_id: [{title, discipline, criterion_index, criterion}]},
+     "rejected": [...], "dropped": [...]} - see _check_subtask_batch for what the
+    derivation rule rejects. `discipline` is one of backend/frontend/qa/design.
+
+    Any unusable answer from the model (malformed output, a rejected request, an id
+    that isn't one of ours, a bad count or discipline) is logged and gives None - the
+    caller then skips sub-tasks and carries on, because the stories and sprints must
+    still be created. Anything else, notably Groq quota and rate-limit errors,
+    propagates so the caller can tell "the AI is busy" from "the AI answered badly".
+    A story may be missing from the answer (it simply gets no sub-tasks)."""
+    if not user_stories:
+        return {"plan": {}, "rejected": [], "dropped": []}
+    ids = [s["id"] for s in user_stories]
+    if len(set(ids)) != len(ids):
+        logger.warning("plan_subtasks: duplicate story ids in the input; skipping sub-tasks")
+        return None
+    criteria_by_story = {}
+    for c in acceptance_criteria or []:
+        criteria_by_story.setdefault(c.get("story_id", ""), []).append(c)
+
+    merged = {"plan": {}, "rejected": [], "dropped": []}
+    for start in range(0, len(user_stories), SUBTASK_BATCH_SIZE):
+        batch = user_stories[start : start + SUBTASK_BATCH_SIZE]
+        message = json.dumps(
+            [
+                {
+                    "id": s["id"],
+                    "role": s.get("role", ""),
+                    "story": s.get("story", ""),
+                    "criteria": [
+                        {"index": i, "scenario": c.get("scenario", ""), "given": c.get("given", ""), "when": c.get("when", ""), "then": c.get("then", "")}
+                        for i, c in enumerate(criteria_by_story.get(s["id"], []))
+                    ],
+                }
+                for s in batch
+            ]
+        )
+        try:
+            answer = _structured_chat(SUBTASKS_PROMPT, message, SubtaskPlan)
+        except (ValueError, BadRequestError) as e:
+            logger.warning("plan_subtasks: unusable model output (%s); skipping sub-tasks", type(e).__name__)
+            return None
+        result, problem = _check_subtask_batch(answer.stories, [s["id"] for s in batch], criteria_by_story)
+        if result is None:
+            logger.warning("plan_subtasks: model answer rejected (%s); skipping sub-tasks", problem)
+            return None
+        merged["plan"].update(result["plan"])
+        merged["rejected"] += result["rejected"]
+        merged["dropped"] += result["dropped"]
+    return merged

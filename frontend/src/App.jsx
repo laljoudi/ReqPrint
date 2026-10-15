@@ -253,11 +253,13 @@ function App() {
     try {
       const result = await pushToJira(params);
       clearPushStarted();
-      savePushRecord(hashDocument(params.requirements), {
-        projectKey: result.project_key,
-        projectUrl: result.project_url,
-        storyCount: result.stories_created,
-      });
+      if ((result.stories_created ?? 0) > 0) {
+        savePushRecord(hashDocument(params.requirements), {
+          projectKey: result.project_key,
+          projectUrl: result.project_url,
+          storyCount: result.stories_created,
+        });
+      }
       return result;
     } catch (err) {
       if (!err.outcomeUnknown) clearPushStarted();

@@ -1,6 +1,18 @@
 """Builds the Word (.docx) file from the requirements data."""
 from io import BytesIO
+
+from pydantic import ValidationError
 from docx import Document
+
+
+def validate_docx_data(data):
+    """Validate export input against the same schema used for generated documents."""
+    from ai import GeneratedRequirements
+
+    try:
+        return GeneratedRequirements.model_validate(data).model_dump()
+    except ValidationError as e:
+        raise ValueError("invalid_requirements_document") from e
 
 
 def build_docx(data):

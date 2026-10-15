@@ -165,13 +165,14 @@ export async function jiraLogout() {
 // dependency order, and dated sprints. Takes about 20-40 seconds. On failure the
 // ApiError carries `code`, and - when Jira already created the project before
 // something went wrong - `project` ({ key, url, created }).
-export async function pushToJira({ projectName, capacityPerWeek, sprintLengthWeeks, startDate, category, requirements }) {
+export async function pushToJira({ projectName, capacityPerWeek, sprintLengthWeeks, startDate, category, subtasks, requirements }) {
   const body = {
     mode: "create",
     project_name: projectName,
     capacity_per_week: capacityPerWeek,
     sprint_length_weeks: sprintLengthWeeks,
     start_date: startDate,
+    create_subtasks: subtasks === true, // always an explicit true/false; the backend rejects anything else
     requirements,
   };
   if (category) body.category = category;
