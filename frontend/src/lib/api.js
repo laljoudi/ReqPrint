@@ -45,7 +45,7 @@ const JIRA_MESSAGES = {
 //   provider quota from a generic failure (see call_groq in main.py).
 // - a known Jira `detail` code: its message above.
 // - anything else: a generic fallback.
-function friendlyMessage(status, code) {
+export function friendlyMessage(status, code) {
   if (status === 429) {
     return "You've reached today's usage limit. Please try again tomorrow.";
   }

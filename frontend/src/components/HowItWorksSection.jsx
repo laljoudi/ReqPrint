@@ -45,7 +45,7 @@ export default function HowItWorksSection() {
   return (
     <section className="bg-panel-2 rounded-[22px] min-[561px]:rounded-[30px] p-[46px_24px] min-[561px]:p-[74px_60px]">
       <h2
-        className="font-display font-bold text-ink mb-10"
+        className="font-display font-bold text-heading mb-10"
         style={{ fontSize: "clamp(25px, 3vw, 33px)", lineHeight: 1.2 }}
       >
         How it works
@@ -56,7 +56,10 @@ export default function HowItWorksSection() {
       <div className="grid grid-cols-1 min-[561px]:grid-cols-2 min-[901px]:grid-cols-4 gap-9">
         {STEPS.map((step) => (
           <div key={step.n} className={`text-left ${step.wide ? "min-[561px]:col-span-full" : ""}`}>
-            <div className="font-mono text-[13px] text-accent tabular-nums mb-2">{step.n}</div>
+            <div className="mb-2">
+              {/* Step 01 is where the visitor starts, so it is the "current" one and gets the marker. */}
+              <span className={`font-mono text-[13px] text-accent tabular-nums ${step.n === "01" ? "rp-mark" : ""}`}>{step.n}</span>
+            </div>
             <div className="font-display font-semibold text-base text-ink mb-1">{step.title}</div>
             {step.desc && (
               <p className={`text-[14.5px] leading-[1.55] text-muted m-0 ${step.wide ? "max-w-[640px]" : ""}`}>{step.desc}</p>

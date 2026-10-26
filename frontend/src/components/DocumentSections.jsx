@@ -28,7 +28,7 @@ const UC_FIELDS = [
   { key: "alternative_flow", label: "Alternative flow" },
 ];
 
-function RequirementList({ items, prefix, chipColor }) {
+function RequirementList({ items, prefix, chipClass }) {
   return (
     <div className="bg-panel border border-border rounded-[14px] px-5 py-1.5">
       {items.map((text, i) => (
@@ -36,10 +36,7 @@ function RequirementList({ items, prefix, chipColor }) {
           key={i}
           className={`flex gap-3.5 py-3.5 items-start ${i > 0 ? "border-t border-border" : ""}`}
         >
-          <span
-            className="flex-none font-mono text-[11.5px] font-bold rounded px-2 py-0.5 mt-px"
-            style={{ color: chipColor, background: `${chipColor}14` }}
-          >
+          <span className={`flex-none font-mono text-[11.5px] font-bold rounded px-2 py-0.5 mt-px ${chipClass}`}>
             {`${prefix}-${i + 1}`}
           </span>
           <span className="flex-1 text-sm leading-relaxed text-ink">{text}</span>
@@ -56,12 +53,12 @@ export function RequirementsSection({ requirements }) {
       <h3 className="font-display font-bold text-[15px] text-ink mb-1 mt-6">
         1.1 &nbsp;Functional
       </h3>
-      <RequirementList items={requirements.functional} prefix="FR" chipColor="#7A1F2B" />
+      <RequirementList items={requirements.functional} prefix="FR" chipClass="text-accent bg-accent/8" />
 
       <h3 className="font-display font-bold text-[15px] text-ink mb-1 mt-7">
         1.2 &nbsp;Non-functional
       </h3>
-      <RequirementList items={requirements.non_functional} prefix="NF" chipColor="#5A1620" />
+      <RequirementList items={requirements.non_functional} prefix="NF" chipClass="text-ink bg-ink/8" />
     </section>
   );
 }
@@ -195,11 +192,7 @@ export function AssumptionsSection({ assumptions }) {
       </p>
       {assumptions.length ? (
         <div
-          className="rounded-[14px] px-5 py-1.5"
-          style={{
-            background: "rgba(122,31,43,0.035)",
-            border: "1px solid rgba(122,31,43,0.20)",
-          }}
+          className="rounded-[14px] px-5 py-1.5 bg-accent/[0.035] border border-accent/20"
         >
           {assumptions.map((text, i) => (
             <div
@@ -220,13 +213,12 @@ export function AssumptionsSection({ assumptions }) {
   );
 }
 
-// Three severity levels, all mapped onto the warm palette instead of the
-// conventional red/amber/blue - darker burgundy reads as more severe, and
-// Dusty Rose gets its one deliberate, sparing use here for "low".
+// Three severity levels in muted state colors (brick red, dark amber, sage), each on a very
+// light tint of itself. The palette is otherwise all brown, so these are the only hues in the app.
 const SEVERITY_STYLES = {
-  high: "bg-accent-dark/10 text-accent-dark border-accent-dark/30",
-  medium: "bg-accent/10 text-accent border-accent/30",
-  low: "bg-rose/15 text-ink border-rose/40",
+  high: "bg-danger-tint text-danger border-danger/30",
+  medium: "bg-warning-tint text-warning border-warning/30",
+  low: "bg-success-tint text-success border-success/30",
 };
 
 export function ReviewSection({ issues, loading, error }) {
@@ -238,7 +230,7 @@ export function ReviewSection({ issues, loading, error }) {
       </p>
 
       {error && (
-        <div className="mb-4 rounded-lg bg-accent-dark/8 border border-accent-dark/25 text-accent-dark text-sm px-3.5 py-2.5">
+        <div className="mb-4 rounded-lg bg-danger-tint border border-danger/30 text-danger text-sm px-3.5 py-2.5">
           {error}
         </div>
       )}

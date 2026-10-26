@@ -45,7 +45,7 @@ function CategoryChips({ onSelect }) {
             key={c}
             type="button"
             onClick={() => onSelect(c)}
-            className="border border-border bg-surface text-ink text-[13px] font-medium px-3.5 py-2 rounded-lg hover:bg-accent/8 hover:border-accent/30 transition-colors"
+            className="border border-border bg-surface text-ink text-[13px] font-medium px-3.5 py-2 rounded-lg hover:bg-surface hover:border-accent transition-colors"
           >
             {c}
           </button>
@@ -61,7 +61,7 @@ function CategoryChips({ onSelect }) {
 function CategoryPill({ category, onClear }) {
   return (
     <div className="mb-2.5">
-      <span className="inline-flex items-center gap-1.5 border border-border bg-surface text-ink text-[12.5px] font-medium px-2.5 py-1 rounded-lg">
+      <span className="inline-flex items-center gap-1.5 border border-highlight bg-highlight text-ink text-[12.5px] font-medium px-2.5 py-1 rounded-lg">
         {category}
         <button
           type="button"
@@ -93,13 +93,13 @@ function Thinking() {
 // No avatars, no "AI"/"YOU" labels - speakers are told apart by alignment and
 // the subtle background on the user's own messages, not by badges. ReqPrint's
 // own messages are plain text on the page, not a card; only the user's
-// messages get the soft butter-tinted bubble.
+// messages get the soft surface-tinted bubble.
 function Message({ role, text }) {
   const mine = role === "user";
   if (mine) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] bg-butter px-4 py-3 rounded-2xl text-[14.5px] leading-[1.6] text-ink">
+        <div className="max-w-[80%] bg-surface px-4 py-3 rounded-2xl text-[14.5px] leading-[1.6] text-ink">
           {text}
         </div>
       </div>
@@ -256,7 +256,7 @@ export default function WorkspaceScreen({
   return (
     <div className="lg:h-screen flex flex-col lg:flex-row">
       {/* Left: persistent conversation panel - interview, then refine. */}
-      <aside className="lg:w-[400px] lg:flex-none flex flex-col border-b lg:border-b-0 lg:border-r border-border bg-panel lg:h-screen">
+      <aside className="lg:w-[400px] lg:flex-none flex flex-col border-b lg:border-b-0 lg:border-r border-border bg-page lg:h-screen">
         <header className="h-14 flex-none flex items-center px-5 border-b border-border">
           <div className="font-display font-extrabold text-base tracking-tight">ReqPrint</div>
           <div className="w-px h-5 bg-border mx-3" />
@@ -287,7 +287,7 @@ export default function WorkspaceScreen({
 
         <div className="flex-none border-t border-border px-5 pt-3.5 pb-4">
           {activeError && (
-            <div className="mb-3 rounded-lg bg-accent-dark/8 border border-accent-dark/25 text-accent-dark text-sm px-3.5 py-2.5">
+            <div className="mb-3 rounded-lg bg-danger-tint border border-danger/30 text-danger text-sm px-3.5 py-2.5">
               {activeError}
             </div>
           )}
@@ -296,7 +296,7 @@ export default function WorkspaceScreen({
             <button
               onClick={onGenerate}
               disabled={loading}
-              className="w-full h-[46px] rounded-xl bg-accent hover:brightness-105 text-white font-display font-bold text-[14.5px] disabled:opacity-60 transition"
+              className="w-full h-[46px] rounded-xl bg-accent hover:bg-accent-hover text-on-accent font-display font-bold text-[14.5px] disabled:opacity-60 transition"
             >
               {loading ? "Generating document..." : "Generate requirements document"}
             </button>
@@ -315,7 +315,7 @@ export default function WorkspaceScreen({
                       key={label}
                       onClick={() => sendSuggestion(label)}
                       disabled={isBusy}
-                      className="border border-border bg-surface text-muted text-xs font-medium px-2.5 py-1.5 rounded-full hover:bg-accent/8 hover:border-accent/30 disabled:opacity-60 transition-colors"
+                      className="border border-border bg-surface text-muted text-xs font-medium px-2.5 py-1.5 rounded-full hover:bg-highlight hover:border-highlight hover:text-ink focus-visible:bg-highlight focus-visible:border-highlight focus-visible:text-ink disabled:opacity-60 transition-colors"
                     >
                       {label}
                     </button>
@@ -326,7 +326,7 @@ export default function WorkspaceScreen({
               {(showAnswerInput || inRefineMode) && (
                 <form
                   onSubmit={handleSubmit}
-                  className="flex items-end gap-2.5 border border-border rounded-[14px] px-4 py-2.5 bg-panel focus-within:border-accent focus-within:shadow-[0_0_0_4px_rgba(122,31,43,0.12)] transition"
+                  className="flex items-end gap-2.5 border border-border rounded-[14px] px-4 py-2.5 bg-input focus-within:border-accent focus-within:ring-1 focus-within:ring-accent transition"
                 >
                   <textarea
                     rows={isFirstTurn ? 4 : 1}
@@ -350,7 +350,7 @@ export default function WorkspaceScreen({
                   <button
                     type="submit"
                     disabled={isBusy}
-                    className="flex-none w-[38px] h-[38px] rounded-[10px] bg-accent hover:brightness-105 text-white flex items-center justify-center disabled:opacity-60 transition"
+                    className="flex-none w-[38px] h-[38px] rounded-[10px] bg-accent hover:bg-accent-hover text-on-accent flex items-center justify-center disabled:opacity-60 transition"
                   >
                     <svg
                       width="17"
@@ -430,7 +430,7 @@ export default function WorkspaceScreen({
                   <button
                     onClick={onDownload}
                     disabled={downloading}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-accent hover:brightness-105 text-white font-semibold text-xs disabled:opacity-60 transition"
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-accent hover:bg-accent-hover text-on-accent font-semibold text-xs disabled:opacity-60 transition"
                   >
                     <DownloadIcon />
                     {downloading && "Preparing..."}

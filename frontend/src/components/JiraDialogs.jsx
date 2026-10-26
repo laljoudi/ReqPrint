@@ -20,9 +20,9 @@ import {
 
 const button = "h-10 px-4 rounded-lg text-[13.5px] font-semibold transition-colors";
 const secondaryButton = `${button} border border-border bg-panel text-muted hover:bg-surface disabled:opacity-60`;
-const primaryButton = `${button} bg-accent text-white hover:brightness-105 disabled:opacity-60 disabled:hover:brightness-100`;
+const primaryButton = `${button} bg-accent text-on-accent hover:bg-accent-hover disabled:opacity-60 disabled:hover:bg-accent`;
 const fieldInput =
-  "w-full h-10 rounded-lg border border-border bg-panel px-3 text-[14px] text-ink outline-none focus:border-accent focus:shadow-[0_0_0_4px_rgba(122,31,43,0.12)] disabled:opacity-60 transition";
+  "w-full h-10 rounded-lg border border-border bg-input px-3 text-[14px] text-ink outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-60 transition";
 
 // The four stages shown while a push runs.
 const PUSH_STAGES = ["Creating project", "Ordering stories", "Creating sprints", "Adding stories"];
@@ -35,7 +35,7 @@ function Field({ id, label, hint, error, children }) {
       </label>
       {children}
       {error ? (
-        <p id={`${id}-note`} className="text-[12px] text-accent-dark mt-1.5 m-0">
+        <p id={`${id}-note`} className="text-[12px] text-danger mt-1.5 m-0">
           {error}
         </p>
       ) : hint ? (
@@ -50,7 +50,7 @@ function Field({ id, label, hint, error, children }) {
 function Notice({ children, tone = "error" }) {
   const styles =
     tone === "error"
-      ? "bg-accent-dark/8 border-accent-dark/25 text-accent-dark"
+      ? "bg-danger-tint border-danger/30 text-danger"
       : "bg-surface border-border text-muted";
   return (
     <div role={tone === "error" ? "alert" : "note"} className={`rounded-lg border px-3.5 py-2.5 text-[13px] leading-relaxed ${styles}`}>
@@ -124,7 +124,7 @@ function Progress({ stage }) {
     <div className="mb-4 rounded-lg border border-border bg-surface px-4 py-3" aria-live="polite">
       <ol className="list-none m-0 p-0 flex flex-col gap-1.5">
         {PUSH_STAGES.map((label, i) => (
-          <li key={label} className={`flex items-center gap-2.5 text-[13.5px] ${i > stage ? "text-hint opacity-60" : i < stage ? "text-muted" : "text-ink font-semibold"}`}>
+          <li key={label} className={`flex items-center gap-2.5 text-[13.5px] ${i > stage ? "text-hint opacity-80" : i < stage ? "text-muted" : "text-ink font-semibold"}`}>
             <span className="w-4 flex-none flex justify-center">
               {i < stage ? (
                 <span className="text-accent">✓</span>
@@ -230,7 +230,7 @@ export function FormView({
           <button type="button" onClick={onDisconnect} disabled={submitting} className="underline hover:text-ink disabled:opacity-60">
             Disconnect
           </button>
-          {disconnectError && <span className="text-accent-dark"> {disconnectError}</span>}
+          {disconnectError && <span className="text-danger"> {disconnectError}</span>}
         </p>
       ) : (
         <p className="text-[12.5px] text-muted m-0 mb-4">Not connected to Jira.</p>
@@ -320,7 +320,7 @@ export function FormView({
 
       <div className="mb-4 rounded-lg border border-border bg-surface px-4 py-2.5 text-[13.5px] font-semibold text-ink" aria-live="polite">
         {errors.stories ? (
-          <span className="font-normal text-accent-dark">{errors.stories}</span>
+          <span className="font-normal text-danger">{errors.stories}</span>
         ) : plan ? (
           // Each part stays on one line, so a narrow screen breaks between them ("... 2 sprints ·" / "7 Nov → 5 Dec"), never inside a date.
           previewParts(plan).map((part, i, all) => (
@@ -412,7 +412,7 @@ export function ResultView({ result, stories, onClose }) {
                   <strong>{f.story_id}</strong>
                   {storyText(f.story_id) ? ` - ${truncate(storyText(f.story_id), 90)}` : ""}
                   <br />
-                  <span className="opacity-80">{truncate(String(f.reason || "No reason given."), 220)}</span>
+                  <span>{truncate(String(f.reason || "No reason given."), 220)}</span>
                 </li>
               ))}
             </ul>
@@ -431,7 +431,7 @@ export function ResultView({ result, stories, onClose }) {
                 <li key={`${f.story_id}-${i}`}>
                   <strong>{f.story_id}</strong> - {truncate(String(f.title || ""), 90)}
                   <br />
-                  <span className="opacity-80">{truncate(String(f.reason || "No reason given."), 220)}</span>
+                  <span>{truncate(String(f.reason || "No reason given."), 220)}</span>
                 </li>
               ))}
             </ul>

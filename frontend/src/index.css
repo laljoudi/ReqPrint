@@ -1,26 +1,33 @@
 @import "tailwindcss";
 
-/* Sand/panel palette (homepage + workspace share these). The 7 primary roles
-   are page/panel/panel-2/ink/muted/accent/border ("hair"); the remaining
-   tokens below are workspace-only supporting roles (severity, hints, chat
-   bubble) derived from the same palette rather than left as separate colors.
-   --color-muted on --color-panel measures ~5.21:1 (on --color-panel-2
-   ~4.94:1) - both clear the 4.5:1 AA minimum for body text, no darkening
-   needed. */
+/* The palette lives here and nowhere else: components use these tokens (bg-page,
+   text-ink, border-border, ...) and carry no hex values of their own.
+   Brown on cream throughout - no blue, purple or neon, and exactly one gradient
+   (the landing hero, below). Contrast ratios are listed next to each token; body text
+   needs 4.5:1, large headings 3:1. */
 @theme {
-  --color-page: #e6decc;
-  --color-panel: #f4eee1;
-  --color-panel-2: #efe8d9;
-  --color-ink: #2b2521;
-  --color-muted: #6b615a;
-  --color-accent: #7a1f2b;
-  --color-border: #dcd2bf;
+  --color-page: #f6efe4; /* page background; the end of the hero gradient must equal this */
+  --color-panel: #fbf8f1; /* cards, dialogs, tooltips, secondary buttons - same value as the input surface */
+  --color-panel-2: #fbf8f1; /* second landing-card role; now the same surface as panel */
+  --color-input: #fbf8f1; /* input surface */
+  --color-surface: #ebdecc; /* hover fills, table headers, chips: halfway between page and border */
+  --color-border: #e1cdb5; /* borders, dividers, and the top of the hero gradient */
+  --color-ink: #211c19; /* primary text (14.8:1 on page) */
+  --color-muted: #49352b; /* secondary text (10.1:1 on page) */
+  --color-hint: #49352b; /* small meta text - same value as muted */
+  --color-accent: #49352b; /* buttons and accent text */
+  --color-accent-hover: #211c19; /* button hover */
+  --color-on-accent: #f6efe4; /* text on a button */
+  --color-heading: #94735d; /* LARGE headings only (3.8:1 on page) - never small text */
+  --color-highlight: #e8d2a3; /* flat highlighter strip, used in four places only */
 
-  --color-accent-dark: #5a1620; /* darker accent - error text, high-severity */
-  --color-hint: #6b615a; /* same value as muted - keeps small meta text at 4.5:1+ */
-  --color-surface: #efe8d9; /* alias of panel-2 - workspace hover/table-header fills */
-  --color-rose: #b98f8f; /* low-severity accent, unchanged */
-  --color-butter: #f5ebd7; /* user chat bubble tint */
+  /* States. Each has a strong color for text/borders and a very light tint for the badge or banner behind it. */
+  --color-danger: #9b3a2e; /* high severity, errors, limits */
+  --color-danger-tint: #f7e7e2;
+  --color-warning: #8a5a12; /* medium severity, warnings */
+  --color-warning-tint: #f6ebd2;
+  --color-success: #4f6b4a; /* low severity, success */
+  --color-success-tint: #e6eddf;
 
   --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
   --font-sans: "Inter", system-ui, sans-serif;
@@ -58,4 +65,28 @@ body {
   40% {
     opacity: 1;
   }
+}
+
+/* The landing hero's only background: one static vertical gradient from the border tone down to
+   exactly the page color, so the hero melts into the page with no seam. */
+.rp-hero-bg {
+  background: linear-gradient(to bottom, var(--color-border), var(--color-page));
+}
+
+/* Highlighter marker: a flat strip behind the lower part of the text. No glow, blur or shadow. */
+.rp-mark {
+  position: relative;
+  z-index: 0;
+  white-space: nowrap;
+}
+.rp-mark::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -0.12em;
+  right: -0.12em;
+  bottom: 0.04em;
+  height: 0.62em;
+  border-radius: 2px;
+  background: var(--color-highlight);
 }

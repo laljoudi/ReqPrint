@@ -20,8 +20,8 @@ export default function WelcomeScreen({ onStart }) {
   return (
     <div className="min-h-screen">
       <div className="max-w-[1080px] mx-auto px-[14px] py-[14px] flex flex-col gap-3.5">
-        {/* Panel 1: Hero - deliberately short, nothing but wordmark + h1 */}
-        <section className="bg-panel rounded-[22px] min-[561px]:rounded-[30px] p-[38px_24px] min-[561px]:p-[52px_60px]">
+        {/* Panel 1: Hero - deliberately short, nothing but wordmark + h1; its background is the page's one gradient */}
+        <section className="rp-hero-bg rounded-[22px] min-[561px]:rounded-[30px] p-[38px_24px] min-[561px]:p-[52px_60px]">
           <div className="text-[25px] leading-none tracking-[-0.03em] font-display font-bold text-ink mb-[26px]">
             ReqPrint
           </div>
@@ -29,7 +29,7 @@ export default function WelcomeScreen({ onStart }) {
             className="font-display font-bold text-ink max-w-[19ch]"
             style={{ fontSize: "clamp(32px, 4.2vw, 46px)", lineHeight: 1.16 }}
           >
-            From a project description to a structured requirements document
+            From a project description to a <span className="rp-mark">structured</span> requirements document
           </h1>
         </section>
 
@@ -42,14 +42,14 @@ export default function WelcomeScreen({ onStart }) {
         {/* Panel 4: Closing - the single entry point into the app */}
         <section className="bg-panel-2 rounded-[22px] min-[561px]:rounded-[30px] p-[46px_24px] min-[561px]:p-[74px_60px] text-center">
           <h2
-            className="font-display font-bold text-ink mb-8"
+            className="font-display font-bold text-heading mb-8"
             style={{ fontSize: "clamp(25px, 3vw, 33px)", lineHeight: 1.2 }}
           >
             Ready to write your first spec?
           </h2>
           <button
             onClick={onStart}
-            className="inline-flex items-center px-8 py-[15px] rounded-full bg-accent hover:brightness-105 active:scale-[0.98] text-white font-display font-semibold text-base transition"
+            className="inline-flex items-center px-8 py-[15px] rounded-full bg-accent hover:bg-accent-hover active:scale-[0.98] text-on-accent font-display font-semibold text-base transition"
           >
             Describe your project
           </button>
