@@ -2,6 +2,7 @@
 endpoints, and (once built) serves the React app itself, so the whole thing runs as
 one process on one port."""
 import asyncio
+import ipaddress
 import os
 from datetime import date
 from pathlib import Path
@@ -50,7 +51,27 @@ from jira_oauth import (
 load_dotenv()
 API_KEY = os.getenv("GROQ_API_KEY")
 
-limiter = Limiter(key_func=get_remote_address)
+def client_ip_key(request: Request) -> str:
+    """The rate-limit key: the visitor's IP.
+
+    Behind Render the TCP peer is Render's proxy, so request.client.host is the same
+    for everyone and a per-IP limit would be shared by all visitors. On a public Render
+    web service Cloudflare sets CF-Connecting-IP itself, overwriting anything the caller
+    sent, so that header is the real client. X-Forwarded-For is deliberately NOT used:
+    proxies append to it, so its leftmost entry is whatever the caller wrote.
+
+    With no (or an unparseable) CF-Connecting-IP - local dev, tests, a direct hit on the
+    container - this is exactly what it was before: request.client.host."""
+    header = request.headers.get("cf-connecting-ip")
+    if header:
+        try:
+            return str(ipaddress.ip_address(header.strip()))
+        except ValueError:
+            pass  # not an IP: never let a made-up value become a limiter key
+    return get_remote_address(request)
+
+
+limiter = Limiter(key_func=client_ip_key)
 
 app = FastAPI(title="ReqPrint API")
 app.state.limiter = limiter
