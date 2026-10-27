@@ -3,6 +3,7 @@ endpoints, and (once built) serves the React app itself, so the whole thing runs
 one process on one port."""
 import asyncio
 import ipaddress
+import logging
 import os
 from datetime import date
 from pathlib import Path
@@ -49,6 +50,7 @@ from jira_oauth import (
 )
 
 load_dotenv()
+logger = logging.getLogger(__name__)  # TEMPORARY, with the log line in client_ip_key
 API_KEY = os.getenv("GROQ_API_KEY")
 
 def client_ip_key(request: Request) -> str:
@@ -63,6 +65,7 @@ def client_ip_key(request: Request) -> str:
     With no (or an unparseable) CF-Connecting-IP - local dev, tests, a direct hit on the
     container - this is exactly what it was before: request.client.host."""
     header = request.headers.get("cf-connecting-ip")
+    logger.warning("cf-connecting-ip present: %s", bool(header))  # TEMPORARY
     if header:
         try:
             return str(ipaddress.ip_address(header.strip()))
